@@ -24,10 +24,12 @@ const requestBodyRuleService = require('../services/requestBodyRuleService')
 
 const IMAGE_SCHEDULER_MODEL = 'gpt-5'
 const CODEX_IMAGE_GENERATION_TOOL = { type: 'image_generation', output_format: 'png' }
+const MAX_IMAGE_RELAY_ATTEMPTS = 2
 const IMAGE_SELECTION_OPTIONS = Object.freeze({
   purpose: 'image-generation',
   preferAccountTypes: ['openai', 'openai-responses']
 })
+const IMAGE_RETRYABLE_STATUS_CODES = new Set([401, 402, 429, 500, 502, 503, 504])
 
 // Codex CLI 系统提示词（非 Codex CLI 客户端请求时注入，统一端点也使用）
 const CODEX_CLI_INSTRUCTIONS =
@@ -1023,6 +1025,42 @@ function getImageRequestSessionId(req) {
   )
 }
 
+function getImageSelectionOptions(excludedAccountIds = []) {
+  if (!excludedAccountIds.length) {
+    return IMAGE_SELECTION_OPTIONS
+  }
+
+  return {
+    ...IMAGE_SELECTION_OPTIONS,
+    excludedAccountIds
+  }
+}
+
+function getImageRelayErrorStatus(error) {
+  return error?.statusCode || error?.response?.status || 500
+}
+
+function isClientDisconnectedImageError(error) {
+  return (
+    error?.clientDisconnected === true ||
+    error?.code === 'ERR_CANCELED' ||
+    error?.name === 'CanceledError' ||
+    error?.message === 'canceled'
+  )
+}
+
+function shouldRetryImageRelay(error, attempt, maxAttempts, res) {
+  if (attempt >= maxAttempts || res.headersSent || res.writableEnded || res.destroyed) {
+    return false
+  }
+
+  if (isClientDisconnectedImageError(error)) {
+    return false
+  }
+
+  return IMAGE_RETRYABLE_STATUS_CODES.has(getImageRelayErrorStatus(error))
+}
+
 const handleImageRequest = async (req, res, action) => {
   try {
     const apiKeyData = req.apiKey || {}
@@ -1040,27 +1078,64 @@ const handleImageRequest = async (req, res, action) => {
       ? crypto.createHash('sha256').update(imageSessionId).digest('hex')
       : null
 
-    const authContext = await getOpenAIAuthToken(
-      apiKeyData,
-      imageSessionId,
-      IMAGE_SCHEDULER_MODEL,
-      IMAGE_SELECTION_OPTIONS
-    )
-    const context = {
-      ...authContext,
-      sessionHash,
-      apiKeyData
+    const attemptedAccountIds = []
+    let lastError = null
+
+    for (let attempt = 1; attempt <= MAX_IMAGE_RELAY_ATTEMPTS; attempt++) {
+      let authContext
+      try {
+        authContext = await getOpenAIAuthToken(
+          apiKeyData,
+          imageSessionId,
+          IMAGE_SCHEDULER_MODEL,
+          getImageSelectionOptions(attemptedAccountIds)
+        )
+      } catch (selectionError) {
+        if (lastError) {
+          throw lastError
+        }
+        throw selectionError
+      }
+
+      const context = {
+        ...authContext,
+        sessionHash,
+        apiKeyData,
+        throwOnImageRelayError: authContext.accountType === 'openai'
+      }
+
+      try {
+        if (authContext.accountType === 'openai-responses') {
+          return await openaiImageRelayService.passthroughOpenAIResponses(req, res, context)
+        }
+
+        if (action === 'edit') {
+          return await openaiImageRelayService.handleEdit(req, res, context)
+        }
+
+        return await openaiImageRelayService.handleGeneration(req, res, context)
+      } catch (error) {
+        lastError = error
+
+        if (authContext.accountId && !attemptedAccountIds.includes(authContext.accountId)) {
+          attemptedAccountIds.push(authContext.accountId)
+        }
+
+        if (!shouldRetryImageRelay(error, attempt, MAX_IMAGE_RELAY_ATTEMPTS, res)) {
+          throw error
+        }
+
+        logger.warn('🔁 Retrying Codex image request with another OpenAI account', {
+          failedAccountId: authContext.accountId,
+          failedAccountType: authContext.accountType,
+          status: getImageRelayErrorStatus(error),
+          attempt,
+          nextAttempt: attempt + 1
+        })
+      }
     }
 
-    if (authContext.accountType === 'openai-responses') {
-      return await openaiImageRelayService.passthroughOpenAIResponses(req, res, context)
-    }
-
-    if (action === 'edit') {
-      return await openaiImageRelayService.handleEdit(req, res, context)
-    }
-
-    return await openaiImageRelayService.handleGeneration(req, res, context)
+    throw lastError || new Error('Image request failed')
   } catch (error) {
     logger.error('OpenAI image request failed:', error)
     if (res.headersSent) {

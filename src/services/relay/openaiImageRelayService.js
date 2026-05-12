@@ -421,6 +421,26 @@ function safeParseJSON(text) {
   }
 }
 
+function extractErrorMessage(payload, fallback) {
+  if (payload?.error?.message) {
+    return payload.error.message
+  }
+  if (payload?.message) {
+    return payload.message
+  }
+  return fallback
+}
+
+function createRelayError(statusCode, payload, fallbackMessage) {
+  const error = new ImageRequestError(
+    statusCode,
+    extractErrorMessage(payload, fallbackMessage),
+    payload?.error?.type || payload?.type || 'api_error'
+  )
+  error.payload = payload
+  return error
+}
+
 function getRetryAfterSeconds(headers = {}, errorData = null) {
   const direct = toNumberSafe(errorData?.error?.resets_in_seconds)
   if (direct !== null) {
@@ -665,8 +685,19 @@ class OpenAIImageRelayService {
 
       return await this._collectImagesFromResponses(req, res, context, upstream, requestPayload)
     } catch (error) {
+      const clientDisconnected = Boolean(abortController?.signal?.aborted)
       if (abortController && !abortController.signal.aborted) {
         abortController.abort()
+      }
+
+      if (clientDisconnected) {
+        error.statusCode = 499
+        error.type = 'request_canceled'
+        error.clientDisconnected = true
+      }
+
+      if (context.throwOnImageRelayError) {
+        throw error
       }
 
       if (res.headersSent) {
@@ -675,10 +706,16 @@ class OpenAIImageRelayService {
 
       const status = error.statusCode || error.response?.status || 500
       const message = error.message || 'Image request failed'
-      logger.error('Codex image relay failed:', {
+      const logPayload = {
         status,
         message
-      })
+      }
+
+      if (clientDisconnected) {
+        logger.warn('Codex image relay canceled by client:', logPayload)
+      } else {
+        logger.error('Codex image relay failed:', logPayload)
+      }
 
       return res.status(status).json({
         error: {
@@ -730,19 +767,30 @@ class OpenAIImageRelayService {
   }
 
   async _prepareImagePayload(req, action) {
+    if (req._codexImagePayload?.action === action) {
+      return req._codexImagePayload.payload
+    }
+
+    let payload
     if (action === 'generate') {
       if (!isJsonRequest(req)) {
         throw new ImageRequestError(400, 'Invalid request: generations require JSON body')
       }
-      return this._prepareGenerationPayload(req.body || {})
+      payload = this._prepareGenerationPayload(req.body || {})
+      req._codexImagePayload = { action, payload }
+      return payload
     }
 
     if (isMultipartRequest(req)) {
-      return await this._prepareEditPayloadFromMultipart(req)
+      payload = await this._prepareEditPayloadFromMultipart(req)
+      req._codexImagePayload = { action, payload }
+      return payload
     }
 
     if (isJsonRequest(req)) {
-      return this._prepareEditPayloadFromJSON(req.body || {})
+      payload = this._prepareEditPayloadFromJSON(req.body || {})
+      req._codexImagePayload = { action, payload }
+      return payload
     }
 
     throw new ImageRequestError(400, 'Invalid request: unsupported Content-Type')
@@ -892,9 +940,20 @@ class OpenAIImageRelayService {
         .catch((error) =>
           logger.error('❌ Failed to mark OpenAI image account unauthorized:', error)
         )
+    } else if (upstream.status >= 500) {
+      await upstreamErrorHelper
+        .markTempUnavailable(context.accountId, 'openai', upstream.status)
+        .catch((error) =>
+          logger.error('❌ Failed to mark OpenAI image account temporarily unavailable:', error)
+        )
     }
 
-    return res.status(upstream.status).json(upstreamErrorHelper.sanitizeErrorForClient(payload))
+    const sanitizedPayload = upstreamErrorHelper.sanitizeErrorForClient(payload)
+    if (context.throwOnImageRelayError) {
+      throw createRelayError(upstream.status, sanitizedPayload, 'Upstream error')
+    }
+
+    return res.status(upstream.status).json(sanitizedPayload)
   }
 
   async _collectImagesFromResponses(req, res, context, upstream, requestPayload) {

@@ -195,6 +195,75 @@ describe('openai image routes', () => {
     )
   })
 
+  test('retries Codex image requests with another OpenAI account on retryable failures', async () => {
+    const retryableError = new Error('Upstream did not return image output')
+    retryableError.statusCode = 502
+    retryableError.type = 'api_error'
+
+    unifiedOpenAIScheduler.selectAccountForApiKey
+      .mockResolvedValueOnce({
+        accountId: 'openai-1',
+        accountType: 'openai'
+      })
+      .mockResolvedValueOnce({
+        accountId: 'openai-2',
+        accountType: 'openai'
+      })
+    openaiAccountService.getAccount.mockImplementation(async (accountId) => ({
+      id: accountId,
+      name: `Codex Account ${accountId}`,
+      accessToken: 'encrypted-token',
+      accountId: `chatgpt-${accountId}`
+    }))
+    openaiImageRelayService.handleGeneration
+      .mockRejectedValueOnce(retryableError)
+      .mockResolvedValueOnce({ ok: true })
+
+    const req = createReq({
+      body: {
+        prompt: 'draw a fallback diagram',
+        model: 'gpt-image-2'
+      }
+    })
+    const res = createRes()
+
+    await openaiRoutes.handleImageGeneration(req, res)
+
+    expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenNthCalledWith(
+      1,
+      req.apiKey,
+      null,
+      'gpt-5',
+      {
+        purpose: 'image-generation',
+        preferAccountTypes: ['openai', 'openai-responses']
+      }
+    )
+    expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenNthCalledWith(
+      2,
+      req.apiKey,
+      null,
+      'gpt-5',
+      {
+        purpose: 'image-generation',
+        preferAccountTypes: ['openai', 'openai-responses'],
+        excludedAccountIds: ['openai-1']
+      }
+    )
+    expect(openaiImageRelayService.handleGeneration).toHaveBeenCalledTimes(2)
+    expect(openaiImageRelayService.handleGeneration).toHaveBeenNthCalledWith(
+      2,
+      req,
+      res,
+      expect.objectContaining({
+        accessToken: 'decrypted-token',
+        accountId: 'openai-2',
+        accountType: 'openai',
+        throwOnImageRelayError: true
+      })
+    )
+  })
+
   test('passes OpenAI-Responses image requests through compatible providers', async () => {
     unifiedOpenAIScheduler.selectAccountForApiKey.mockResolvedValue({
       accountId: 'resp-1',
