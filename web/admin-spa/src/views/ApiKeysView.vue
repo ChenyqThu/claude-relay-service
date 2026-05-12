@@ -200,28 +200,8 @@
                 <span class="relative">刷新</span>
               </button>
 
-              <!-- 自定义排序按钮 -->
               <button
-                :class="[
-                  isCustomSortActive
-                    ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                    : 'border-gray-200 bg-white text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200',
-                  'group relative flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium shadow-sm transition-all duration-200 hover:border-blue-300 hover:shadow-md dark:hover:border-blue-600 sm:w-auto'
-                ]"
-                title="使用当前浏览器保存的 Key 顺序"
-                @click="activateCustomApiKeySort"
-              >
-                <div
-                  class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
-                ></div>
-                <i class="fas fa-grip-vertical relative text-blue-500" />
-                <span class="relative">{{
-                  isCustomSortActive ? '自定义排序中' : '自定义排序'
-                }}</span>
-              </button>
-
-              <button
-                v-if="hasApiKeyCustomOrder || isCustomSortActive"
+                v-if="hasApiKeyCustomOrder"
                 class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500 sm:w-auto"
                 title="清除当前浏览器保存的 Key 顺序"
                 @click="resetApiKeyCustomOrder"
@@ -327,8 +307,14 @@
                 >
                   <tr>
                     <th
+                      class="order-column sticky left-0 z-20 w-[44px] min-w-[44px] px-2 py-4 text-center text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                      title="拖拽行首按钮调整顺序"
+                    >
+                      <i class="fas fa-grip-vertical text-blue-500" />
+                    </th>
+                    <th
                       v-if="shouldShowCheckboxes"
-                      class="checkbox-column sticky left-0 z-20 min-w-[50px] px-3 py-4 text-left"
+                      class="checkbox-column sticky left-[44px] z-20 min-w-[50px] px-3 py-4 text-left"
                     >
                       <div class="flex items-center">
                         <input
@@ -342,7 +328,7 @@
                     </th>
                     <th
                       class="name-column sticky z-20 min-w-[140px] cursor-pointer px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
-                      :class="shouldShowCheckboxes ? 'left-[50px]' : 'left-0'"
+                      :class="shouldShowCheckboxes ? 'left-[94px]' : 'left-[44px]'"
                       @click="sortApiKeys('name')"
                     >
                       名称
@@ -477,21 +463,30 @@
                         'table-row',
                         'border-b-2 border-gray-200/80 dark:border-gray-700/50',
                         'hover:shadow-sm',
-                        isCustomSortActive ? 'cursor-move' : '',
                         draggedApiKeyId === key.id ? 'opacity-50' : '',
                         dragOverApiKeyId === key.id && draggedApiKeyId !== key.id
                           ? 'api-key-drag-over'
                           : ''
                       ]"
-                      :draggable="isCustomSortActive"
-                      @dragend="handleApiKeyDragEnd"
                       @dragover.prevent="handleApiKeyDragOver(key.id)"
-                      @dragstart="handleApiKeyDragStart($event, key.id)"
                       @drop.prevent="handleApiKeyDrop(key.id)"
                     >
+                      <td class="order-column sticky left-0 z-10 px-2 py-3 text-center">
+                        <button
+                          class="inline-flex h-7 w-7 cursor-grab items-center justify-center rounded-md border border-gray-200 bg-white text-gray-400 transition-colors hover:border-blue-300 hover:text-blue-500 active:cursor-grabbing dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-600 dark:hover:text-blue-300"
+                          draggable="true"
+                          title="拖拽调整顺序"
+                          type="button"
+                          @click.stop
+                          @dragend="handleApiKeyDragEnd"
+                          @dragstart.stop="handleApiKeyDragStart($event, key.id)"
+                        >
+                          <i class="fas fa-grip-vertical text-xs" />
+                        </button>
+                      </td>
                       <td
                         v-if="shouldShowCheckboxes"
-                        class="checkbox-column sticky left-0 z-10 px-3 py-3"
+                        class="checkbox-column sticky left-[44px] z-10 px-3 py-3"
                       >
                         <div class="flex items-center">
                           <input
@@ -505,35 +500,24 @@
                       </td>
                       <td
                         class="name-column sticky z-10 px-3 py-3"
-                        :class="shouldShowCheckboxes ? 'left-[50px]' : 'left-0'"
+                        :class="shouldShowCheckboxes ? 'left-[94px]' : 'left-[44px]'"
                       >
-                        <div class="flex min-w-0 items-start gap-2">
-                          <button
-                            v-if="isCustomSortActive"
-                            class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-100 hover:text-blue-500 dark:hover:bg-gray-700"
-                            title="拖拽调整顺序"
-                            type="button"
-                            @click.stop
+                        <div class="min-w-0">
+                          <!-- 名称 -->
+                          <div
+                            class="cursor-pointer truncate text-sm font-semibold text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                            title="点击复制"
+                            @click.stop="copyText(key.name)"
                           >
-                            <i class="fas fa-grip-vertical text-xs" />
-                          </button>
-                          <div class="min-w-0">
-                            <!-- 名称 -->
-                            <div
-                              class="cursor-pointer truncate text-sm font-semibold text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
-                              title="点击复制"
-                              @click.stop="copyText(key.name)"
-                            >
-                              {{ key.name }}
-                            </div>
-                            <!-- 显示所有者信息 -->
-                            <div
-                              v-if="isLdapEnabled && key.ownerDisplayName"
-                              class="mt-1 text-xs text-red-600"
-                            >
-                              <i class="fas fa-user mr-1" />
-                              {{ key.ownerDisplayName }}
-                            </div>
+                            {{ key.name }}
+                          </div>
+                          <!-- 显示所有者信息 -->
+                          <div
+                            v-if="isLdapEnabled && key.ownerDisplayName"
+                            class="mt-1 text-xs text-red-600"
+                          >
+                            <i class="fas fa-user mr-1" />
+                            {{ key.ownerDisplayName }}
                           </div>
                         </div>
                       </td>
@@ -1065,7 +1049,10 @@
 
                     <!-- 模型统计展开区域 -->
                     <tr v-if="key && key.id && expandedApiKeys[key.id]">
-                      <td class="bg-gray-50 px-3 py-3 dark:bg-gray-700" colspan="13">
+                      <td
+                        class="bg-gray-50 px-3 py-3 dark:bg-gray-700"
+                        :colspan="apiKeyDetailColspan"
+                      >
                         <div v-if="!apiKeyModelStats[key.id]" class="py-4 text-center">
                           <div class="loading-spinner mx-auto" />
                           <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
@@ -1331,10 +1318,7 @@
             <div
               v-for="key in paginatedApiKeys"
               :key="key.id"
-              :class="[
-                'card p-4 transition-shadow hover:shadow-lg',
-                isCustomSortActive ? 'border border-blue-100 dark:border-blue-900/40' : ''
-              ]"
+              class="card p-4 transition-shadow hover:shadow-lg"
             >
               <!-- 卡片头部 -->
               <div class="mb-3 flex items-start justify-between">
@@ -1361,7 +1345,7 @@
                   </div>
                 </div>
                 <div class="flex items-center gap-2">
-                  <div v-if="isCustomSortActive" class="flex items-center gap-1">
+                  <div class="flex items-center gap-1">
                     <button
                       class="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-600 dark:hover:text-blue-300"
                       :disabled="isApiKeyMoveDisabled(key.id, -1)"
@@ -1773,11 +1757,8 @@
             <span class="text-xs text-gray-600 dark:text-gray-400 sm:text-sm">
               共 {{ sortedApiKeys.length }} 条记录，已全部显示
             </span>
-            <span
-              v-if="isCustomSortActive"
-              class="text-xs text-blue-600 dark:text-blue-300 sm:text-sm"
-            >
-              桌面端可拖拽行调整顺序，移动端可使用上移/下移
+            <span class="text-xs text-blue-600 dark:text-blue-300 sm:text-sm">
+              桌面端可拖拽行首按钮调整顺序，移动端可使用上移/下移
             </span>
           </div>
         </div>
@@ -2257,6 +2238,10 @@ const shouldShowCheckboxes = computed(() => {
   return showCheckboxes.value
 })
 
+const apiKeyDetailColspan = computed(() => {
+  return shouldShowCheckboxes.value ? 14 : 13
+})
+
 // 切换选择模式
 const toggleSelectionMode = () => {
   showCheckboxes.value = !showCheckboxes.value
@@ -2509,18 +2494,6 @@ const commitVisibleApiKeyOrder = (orderedKeys) => {
   apiKeysSortOrder.value = 'asc'
 }
 
-const activateCustomApiKeySort = () => {
-  if (apiKeyCustomOrder.value.length === 0) {
-    saveApiKeyCustomOrder(sortedApiKeys.value.map((key) => key.id))
-  } else {
-    syncApiKeyCustomOrder(apiKeys.value)
-  }
-
-  apiKeysSortBy.value = API_KEY_CUSTOM_SORT_BY
-  apiKeysSortOrder.value = 'asc'
-  updateSelectAllState()
-}
-
 const resetApiKeyCustomOrder = () => {
   saveApiKeyCustomOrder([])
   apiKeysSortBy.value = 'createdAt'
@@ -2549,8 +2522,6 @@ const isApiKeyMoveDisabled = (keyId, direction) => {
 }
 
 const handleApiKeyDragStart = (event, keyId) => {
-  if (!isCustomSortActive.value) return
-
   draggedApiKeyId.value = keyId
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
@@ -2559,7 +2530,7 @@ const handleApiKeyDragStart = (event, keyId) => {
 }
 
 const handleApiKeyDragOver = (keyId) => {
-  if (!isCustomSortActive.value || !draggedApiKeyId.value || draggedApiKeyId.value === keyId) {
+  if (!draggedApiKeyId.value || draggedApiKeyId.value === keyId) {
     return
   }
 
@@ -2567,11 +2538,7 @@ const handleApiKeyDragOver = (keyId) => {
 }
 
 const handleApiKeyDrop = (targetKeyId) => {
-  if (
-    !isCustomSortActive.value ||
-    !draggedApiKeyId.value ||
-    draggedApiKeyId.value === targetKeyId
-  ) {
+  if (!draggedApiKeyId.value || draggedApiKeyId.value === targetKeyId) {
     handleApiKeyDragEnd()
     return
   }
@@ -5075,7 +5042,8 @@ onUnmounted(() => {
   box-shadow: -8px 0 12px -8px rgba(30, 41, 59, 0.45);
 }
 
-/* 固定左侧列（复选框和名称列）*/
+/* 固定左侧列（排序、复选框和名称列）*/
+.order-column,
 .checkbox-column,
 .name-column {
   position: sticky;
@@ -5083,12 +5051,14 @@ onUnmounted(() => {
 }
 
 /* 表头左侧固定列背景 - 使用纯色避免滚动时重叠 */
+.table-container thead .order-column,
 .table-container thead .checkbox-column,
 .table-container thead .name-column {
   z-index: 30;
   background: linear-gradient(to bottom, #f9fafb, #f3f4f6);
 }
 
+.dark .table-container thead .order-column,
 .dark .table-container thead .checkbox-column,
 .dark .table-container thead .name-column {
   background: linear-gradient(to bottom, var(--bg-gradient-mid), var(--bg-gradient-start));
