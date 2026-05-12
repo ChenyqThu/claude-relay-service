@@ -212,6 +212,8 @@ deploy/
 # Local development files
 .local/
 local/
+.omc/
+.omx/
 
 # Debug files
 debug.log
