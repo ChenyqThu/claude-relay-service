@@ -200,6 +200,39 @@
                 <span class="relative">刷新</span>
               </button>
 
+              <!-- 自定义排序按钮 -->
+              <button
+                :class="[
+                  isCustomSortActive
+                    ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                    : 'border-gray-200 bg-white text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200',
+                  'group relative flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium shadow-sm transition-all duration-200 hover:border-blue-300 hover:shadow-md dark:hover:border-blue-600 sm:w-auto'
+                ]"
+                title="使用当前浏览器保存的 Key 顺序"
+                @click="activateCustomApiKeySort"
+              >
+                <div
+                  class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
+                ></div>
+                <i class="fas fa-grip-vertical relative text-blue-500" />
+                <span class="relative">{{
+                  isCustomSortActive ? '自定义排序中' : '自定义排序'
+                }}</span>
+              </button>
+
+              <button
+                v-if="hasApiKeyCustomOrder || isCustomSortActive"
+                class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500 sm:w-auto"
+                title="清除当前浏览器保存的 Key 顺序"
+                @click="resetApiKeyCustomOrder"
+              >
+                <div
+                  class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-gray-500 to-slate-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
+                ></div>
+                <i class="fas fa-rotate-left relative text-gray-500" />
+                <span class="relative">恢复默认</span>
+              </button>
+
               <!-- 选择/取消选择按钮 -->
               <button
                 class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
@@ -443,8 +476,18 @@
                       :class="[
                         'table-row',
                         'border-b-2 border-gray-200/80 dark:border-gray-700/50',
-                        'hover:shadow-sm'
+                        'hover:shadow-sm',
+                        isCustomSortActive ? 'cursor-move' : '',
+                        draggedApiKeyId === key.id ? 'opacity-50' : '',
+                        dragOverApiKeyId === key.id && draggedApiKeyId !== key.id
+                          ? 'api-key-drag-over'
+                          : ''
                       ]"
+                      :draggable="isCustomSortActive"
+                      @dragend="handleApiKeyDragEnd"
+                      @dragover.prevent="handleApiKeyDragOver(key.id)"
+                      @dragstart="handleApiKeyDragStart($event, key.id)"
+                      @drop.prevent="handleApiKeyDrop(key.id)"
                     >
                       <td
                         v-if="shouldShowCheckboxes"
@@ -464,22 +507,33 @@
                         class="name-column sticky z-10 px-3 py-3"
                         :class="shouldShowCheckboxes ? 'left-[50px]' : 'left-0'"
                       >
-                        <div class="min-w-0">
-                          <!-- 名称 -->
-                          <div
-                            class="cursor-pointer truncate text-sm font-semibold text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
-                            title="点击复制"
-                            @click.stop="copyText(key.name)"
+                        <div class="flex min-w-0 items-start gap-2">
+                          <button
+                            v-if="isCustomSortActive"
+                            class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-100 hover:text-blue-500 dark:hover:bg-gray-700"
+                            title="拖拽调整顺序"
+                            type="button"
+                            @click.stop
                           >
-                            {{ key.name }}
-                          </div>
-                          <!-- 显示所有者信息 -->
-                          <div
-                            v-if="isLdapEnabled && key.ownerDisplayName"
-                            class="mt-1 text-xs text-red-600"
-                          >
-                            <i class="fas fa-user mr-1" />
-                            {{ key.ownerDisplayName }}
+                            <i class="fas fa-grip-vertical text-xs" />
+                          </button>
+                          <div class="min-w-0">
+                            <!-- 名称 -->
+                            <div
+                              class="cursor-pointer truncate text-sm font-semibold text-gray-900 hover:text-blue-600 dark:text-gray-100 dark:hover:text-blue-400"
+                              title="点击复制"
+                              @click.stop="copyText(key.name)"
+                            >
+                              {{ key.name }}
+                            </div>
+                            <!-- 显示所有者信息 -->
+                            <div
+                              v-if="isLdapEnabled && key.ownerDisplayName"
+                              class="mt-1 text-xs text-red-600"
+                            >
+                              <i class="fas fa-user mr-1" />
+                              {{ key.ownerDisplayName }}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -1277,7 +1331,10 @@
             <div
               v-for="key in paginatedApiKeys"
               :key="key.id"
-              class="card p-4 transition-shadow hover:shadow-lg"
+              :class="[
+                'card p-4 transition-shadow hover:shadow-lg',
+                isCustomSortActive ? 'border border-blue-100 dark:border-blue-900/40' : ''
+              ]"
             >
               <!-- 卡片头部 -->
               <div class="mb-3 flex items-start justify-between">
@@ -1303,22 +1360,44 @@
                     </p>
                   </div>
                 </div>
-                <span
-                  :class="[
-                    'inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold',
-                    key.isActive
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                      : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-                  ]"
-                >
-                  <div
+                <div class="flex items-center gap-2">
+                  <div v-if="isCustomSortActive" class="flex items-center gap-1">
+                    <button
+                      class="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-600 dark:hover:text-blue-300"
+                      :disabled="isApiKeyMoveDisabled(key.id, -1)"
+                      title="上移"
+                      type="button"
+                      @click="moveApiKeyInCustomOrder(key.id, -1)"
+                    >
+                      <i class="fas fa-chevron-up text-xs" />
+                    </button>
+                    <button
+                      class="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-600 dark:hover:text-blue-300"
+                      :disabled="isApiKeyMoveDisabled(key.id, 1)"
+                      title="下移"
+                      type="button"
+                      @click="moveApiKeyInCustomOrder(key.id, 1)"
+                    >
+                      <i class="fas fa-chevron-down text-xs" />
+                    </button>
+                  </div>
+                  <span
                     :class="[
-                      'mr-1.5 h-1.5 w-1.5 rounded-full',
-                      key.isActive ? 'bg-green-500' : 'bg-red-500'
+                      'inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold',
+                      key.isActive
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
                     ]"
-                  />
-                  {{ key.isActive ? '活跃' : '已停用' }}
-                </span>
+                  >
+                    <div
+                      :class="[
+                        'mr-1.5 h-1.5 w-1.5 rounded-full',
+                        key.isActive ? 'bg-green-500' : 'bg-red-500'
+                      ]"
+                    />
+                    {{ key.isActive ? '活跃' : '已停用' }}
+                  </span>
+                </div>
               </div>
 
               <!-- 账户绑定信息 -->
@@ -1686,94 +1765,20 @@
             </div>
           </div>
 
-          <!-- 分页组件 -->
+          <!-- 列表状态 -->
           <div
             v-if="sortedApiKeys.length > 0"
             class="mt-4 flex flex-col items-center justify-between gap-4 sm:mt-6 sm:flex-row"
           >
-            <div class="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
-              <span class="text-xs text-gray-600 dark:text-gray-400 sm:text-sm">
-                共 {{ sortedApiKeys.length }} 条记录
-              </span>
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-gray-600 dark:text-gray-400 sm:text-sm">每页显示</span>
-                <select
-                  v-model="pageSize"
-                  class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 transition-colors hover:border-gray-300 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 sm:text-sm"
-                >
-                  <option v-for="size in pageSizeOptions" :key="size" :value="size">
-                    {{ size }}
-                  </option>
-                </select>
-                <span class="text-xs text-gray-600 dark:text-gray-400 sm:text-sm">条</span>
-              </div>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <!-- 上一页 -->
-              <button
-                class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
-                :disabled="currentPage === 1"
-                @click="currentPage--"
-              >
-                <i class="fas fa-chevron-left" />
-              </button>
-
-              <!-- 页码 -->
-              <div class="flex items-center gap-1">
-                <!-- 第一页 -->
-                <button
-                  v-if="shouldShowFirstPage"
-                  class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
-                  @click="currentPage = 1"
-                >
-                  1
-                </button>
-                <span
-                  v-if="showLeadingEllipsis"
-                  class="hidden px-2 text-gray-500 dark:text-gray-400 sm:inline"
-                  >...</span
-                >
-
-                <!-- 中间页码 -->
-                <button
-                  v-for="page in pageNumbers"
-                  :key="page"
-                  :class="[
-                    'rounded-md px-2 py-1 text-xs font-medium sm:px-3 sm:text-sm',
-                    page === currentPage
-                      ? 'bg-blue-600 text-white'
-                      : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-                  ]"
-                  @click="currentPage = page"
-                >
-                  {{ page }}
-                </button>
-
-                <!-- 最后一页 -->
-                <span
-                  v-if="showTrailingEllipsis"
-                  class="hidden px-2 text-gray-500 dark:text-gray-400 sm:inline"
-                  >...</span
-                >
-                <button
-                  v-if="shouldShowLastPage"
-                  class="hidden rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:block"
-                  @click="currentPage = totalPages"
-                >
-                  {{ totalPages }}
-                </button>
-              </div>
-
-              <!-- 下一页 -->
-              <button
-                class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:py-1 sm:text-sm"
-                :disabled="currentPage === totalPages || totalPages === 0"
-                @click="currentPage++"
-              >
-                <i class="fas fa-chevron-right" />
-              </button>
-            </div>
+            <span class="text-xs text-gray-600 dark:text-gray-400 sm:text-sm">
+              共 {{ sortedApiKeys.length }} 条记录，已全部显示
+            </span>
+            <span
+              v-if="isCustomSortActive"
+              class="text-xs text-blue-600 dark:text-blue-300 sm:text-sm"
+            >
+              桌面端可拖拽行调整顺序，移动端可使用上移/下移
+            </span>
           </div>
         </div>
 
@@ -2201,7 +2206,6 @@ const selectAllChecked = ref(false)
 const isIndeterminate = ref(false)
 const showCheckboxes = ref(false)
 const apiKeysLoading = ref(false)
-const apiKeyStatsTimeRange = ref('today')
 
 // 全局日期筛选器
 const globalDateFilter = reactive({
@@ -2211,6 +2215,42 @@ const globalDateFilter = reactive({
   customEnd: '',
   customRange: null
 })
+
+const API_KEY_CUSTOM_ORDER_STORAGE_KEY = 'crs:admin:apiKeys:customOrder:v1'
+const API_KEY_LIST_LOAD_PAGE_SIZE = 50
+const API_KEY_CUSTOM_SORT_BY = 'custom'
+const API_KEY_BACKEND_SORT_FIELDS = [
+  'name',
+  'createdAt',
+  'expiresAt',
+  'lastUsedAt',
+  'isActive',
+  'status',
+  'cost'
+]
+
+const normalizeApiKeyOrder = (order) => {
+  if (!Array.isArray(order)) return []
+
+  const seenIds = new Set()
+  return order
+    .map((id) => String(id || '').trim())
+    .filter((id) => {
+      if (!id || seenIds.has(id)) return false
+      seenIds.add(id)
+      return true
+    })
+}
+
+const readApiKeyCustomOrder = () => {
+  try {
+    return normalizeApiKeyOrder(JSON.parse(localStorage.getItem(API_KEY_CUSTOM_ORDER_STORAGE_KEY)))
+  } catch {
+    return []
+  }
+}
+
+const initialApiKeyCustomOrder = readApiKeyCustomOrder()
 
 // 是否应该显示多选框
 const shouldShowCheckboxes = computed(() => {
@@ -2241,20 +2281,20 @@ const timeRangeDropdownOptions = computed(() => [
 const activeTab = ref('active')
 const deletedApiKeys = ref([])
 const deletedApiKeysLoading = ref(false)
-const apiKeysSortBy = ref('createdAt') // 默认排序为创建时间
+const apiKeyCustomOrder = ref(initialApiKeyCustomOrder)
+const apiKeysSortBy = ref(
+  initialApiKeyCustomOrder.length > 0 ? API_KEY_CUSTOM_SORT_BY : 'createdAt'
+)
 const apiKeysSortOrder = ref('desc')
 const expandedApiKeys = ref({})
+const draggedApiKeyId = ref('')
+const dragOverApiKeyId = ref('')
+
+const hasApiKeyCustomOrder = computed(() => apiKeyCustomOrder.value.length > 0)
+const isCustomSortActive = computed(() => apiKeysSortBy.value === API_KEY_CUSTOM_SORT_BY)
 
 // 费用排序相关状态
 const costSortStatus = ref({}) // 各时间范围的索引状态
-
-// 后端分页相关状态
-const serverPagination = ref({
-  page: 1,
-  pageSize: 20,
-  total: 0,
-  totalPages: 0
-})
 
 // 统计数据缓存: Map<keyId, { stats, timeRange, timestamp }>
 const statsCache = ref(new Map())
@@ -2326,23 +2366,6 @@ const selectedTagCount = computed(() => {
     .length
 })
 
-// 分页相关
-const currentPage = ref(1)
-// 从 localStorage 读取保存的每页显示条数，默认为 10
-const getInitialPageSize = () => {
-  const saved = localStorage.getItem('apiKeysPageSize')
-  if (saved) {
-    const parsedSize = parseInt(saved, 10)
-    // 验证保存的值是否在允许的选项中
-    if ([10, 20, 50, 100].includes(parsedSize)) {
-      return parsedSize
-    }
-  }
-  return 10
-}
-const pageSize = ref(getInitialPageSize())
-const pageSizeOptions = [10, 20, 50, 100]
-
 // 模态框状态
 const showCreateApiKeyModal = ref(false)
 const showEditApiKeyModal = ref(false)
@@ -2389,76 +2412,196 @@ const handleCancel = () => {
   confirmResolve.value?.(false)
 }
 
-// 计算排序后的API Keys（现在由后端处理，这里直接返回）
-const sortedApiKeys = computed(() => {
-  // 后端已经处理了筛选、搜索和排序，直接返回
-  return apiKeys.value
-})
+const saveApiKeyCustomOrder = (order) => {
+  const normalizedOrder = normalizeApiKeyOrder(order)
+  apiKeyCustomOrder.value = normalizedOrder
 
-// 计算总页数（使用后端分页信息）
-const totalPages = computed(() => {
-  return serverPagination.value.totalPages || 0
-})
-
-// 计算显示的页码数组
-const pageNumbers = computed(() => {
-  const pages = []
-  const current = currentPage.value
-  const total = totalPages.value
-
-  if (total <= 7) {
-    // 如果总页数小于等于7，显示所有页码
-    for (let i = 1; i <= total; i++) {
-      pages.push(i)
+  try {
+    if (normalizedOrder.length > 0) {
+      localStorage.setItem(API_KEY_CUSTOM_ORDER_STORAGE_KEY, JSON.stringify(normalizedOrder))
+    } else {
+      localStorage.removeItem(API_KEY_CUSTOM_ORDER_STORAGE_KEY)
     }
-  } else {
-    // 如果总页数大于7，显示部分页码
-    let start = Math.max(1, current - 2)
-    let end = Math.min(total, current + 2)
+  } catch {
+    showToast('排序保存失败，请检查浏览器本地存储权限', 'error')
+  }
+}
 
-    // 调整起始和结束页码
-    if (current <= 3) {
-      end = 5
-    } else if (current >= total - 2) {
-      start = total - 4
-    }
+const hasActiveApiKeyListFilter = () => {
+  return Boolean(searchKeyword.value || selectedTagFilter.value || selectedModels.value.length > 0)
+}
 
-    for (let i = start; i <= end; i++) {
-      pages.push(i)
+const syncApiKeyCustomOrder = (keys) => {
+  if (apiKeyCustomOrder.value.length === 0) return
+
+  const keyIds = keys.map((key) => key.id).filter(Boolean)
+  const visibleIds = new Set(keyIds)
+  const knownIds = new Set()
+  const nextOrder = []
+
+  apiKeyCustomOrder.value.forEach((id) => {
+    if (!hasActiveApiKeyListFilter() && !visibleIds.has(id)) return
+    if (knownIds.has(id)) return
+    knownIds.add(id)
+    nextOrder.push(id)
+  })
+
+  keyIds.forEach((id) => {
+    if (!knownIds.has(id)) {
+      knownIds.add(id)
+      nextOrder.push(id)
     }
+  })
+
+  if (nextOrder.join('|') !== apiKeyCustomOrder.value.join('|')) {
+    saveApiKeyCustomOrder(nextOrder)
+  }
+}
+
+const getCustomSortedApiKeys = (keys) => {
+  if (!isCustomSortActive.value || apiKeyCustomOrder.value.length === 0) {
+    return keys
   }
 
-  return pages
+  const orderIndex = new Map(apiKeyCustomOrder.value.map((id, index) => [id, index]))
+
+  return keys
+    .map((key, index) => ({ key, index }))
+    .sort((a, b) => {
+      const aIndex = orderIndex.has(a.key.id) ? orderIndex.get(a.key.id) : Number.MAX_SAFE_INTEGER
+      const bIndex = orderIndex.has(b.key.id) ? orderIndex.get(b.key.id) : Number.MAX_SAFE_INTEGER
+
+      if (aIndex !== bIndex) return aIndex - bIndex
+      return a.index - b.index
+    })
+    .map(({ key }) => key)
+}
+
+const commitVisibleApiKeyOrder = (orderedKeys) => {
+  const visibleIds = normalizeApiKeyOrder(orderedKeys.map((key) => key.id))
+  const visibleIdSet = new Set(visibleIds)
+  const baseOrder =
+    apiKeyCustomOrder.value.length > 0
+      ? apiKeyCustomOrder.value
+      : normalizeApiKeyOrder(apiKeys.value.map((key) => key.id))
+  const nextOrder = []
+  let visibleIndex = 0
+
+  baseOrder.forEach((id) => {
+    if (visibleIdSet.has(id)) {
+      if (visibleIndex < visibleIds.length) {
+        nextOrder.push(visibleIds[visibleIndex])
+        visibleIndex += 1
+      }
+      return
+    }
+
+    nextOrder.push(id)
+  })
+
+  while (visibleIndex < visibleIds.length) {
+    nextOrder.push(visibleIds[visibleIndex])
+    visibleIndex += 1
+  }
+
+  saveApiKeyCustomOrder(nextOrder)
+  apiKeysSortBy.value = API_KEY_CUSTOM_SORT_BY
+  apiKeysSortOrder.value = 'asc'
+}
+
+const activateCustomApiKeySort = () => {
+  if (apiKeyCustomOrder.value.length === 0) {
+    saveApiKeyCustomOrder(sortedApiKeys.value.map((key) => key.id))
+  } else {
+    syncApiKeyCustomOrder(apiKeys.value)
+  }
+
+  apiKeysSortBy.value = API_KEY_CUSTOM_SORT_BY
+  apiKeysSortOrder.value = 'asc'
+  updateSelectAllState()
+}
+
+const resetApiKeyCustomOrder = () => {
+  saveApiKeyCustomOrder([])
+  apiKeysSortBy.value = 'createdAt'
+  apiKeysSortOrder.value = 'desc'
+  draggedApiKeyId.value = ''
+  dragOverApiKeyId.value = ''
+  showToast('已恢复默认排序', 'success')
+}
+
+const moveApiKeyInCustomOrder = (keyId, direction) => {
+  const visibleKeys = [...paginatedApiKeys.value]
+  const fromIndex = visibleKeys.findIndex((key) => key.id === keyId)
+  const toIndex = fromIndex + direction
+
+  if (fromIndex < 0 || toIndex < 0 || toIndex >= visibleKeys.length) return
+
+  const [movedKey] = visibleKeys.splice(fromIndex, 1)
+  visibleKeys.splice(toIndex, 0, movedKey)
+  commitVisibleApiKeyOrder(visibleKeys)
+}
+
+const isApiKeyMoveDisabled = (keyId, direction) => {
+  const index = paginatedApiKeys.value.findIndex((key) => key.id === keyId)
+  if (index < 0) return true
+  return direction < 0 ? index === 0 : index === paginatedApiKeys.value.length - 1
+}
+
+const handleApiKeyDragStart = (event, keyId) => {
+  if (!isCustomSortActive.value) return
+
+  draggedApiKeyId.value = keyId
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', keyId)
+  }
+}
+
+const handleApiKeyDragOver = (keyId) => {
+  if (!isCustomSortActive.value || !draggedApiKeyId.value || draggedApiKeyId.value === keyId) {
+    return
+  }
+
+  dragOverApiKeyId.value = keyId
+}
+
+const handleApiKeyDrop = (targetKeyId) => {
+  if (
+    !isCustomSortActive.value ||
+    !draggedApiKeyId.value ||
+    draggedApiKeyId.value === targetKeyId
+  ) {
+    handleApiKeyDragEnd()
+    return
+  }
+
+  const visibleKeys = [...paginatedApiKeys.value]
+  const fromIndex = visibleKeys.findIndex((key) => key.id === draggedApiKeyId.value)
+  const toIndex = visibleKeys.findIndex((key) => key.id === targetKeyId)
+
+  if (fromIndex >= 0 && toIndex >= 0) {
+    const [movedKey] = visibleKeys.splice(fromIndex, 1)
+    visibleKeys.splice(toIndex, 0, movedKey)
+    commitVisibleApiKeyOrder(visibleKeys)
+  }
+
+  handleApiKeyDragEnd()
+}
+
+const handleApiKeyDragEnd = () => {
+  draggedApiKeyId.value = ''
+  dragOverApiKeyId.value = ''
+}
+
+// 计算排序后的API Keys
+const sortedApiKeys = computed(() => {
+  return getCustomSortedApiKeys(apiKeys.value)
 })
 
-const shouldShowFirstPage = computed(() => {
-  const pages = pageNumbers.value
-  if (pages.length === 0) return false
-  return pages[0] > 1
-})
-
-const shouldShowLastPage = computed(() => {
-  const pages = pageNumbers.value
-  if (pages.length === 0) return false
-  return pages[pages.length - 1] < totalPages.value
-})
-
-const showLeadingEllipsis = computed(() => {
-  const pages = pageNumbers.value
-  if (pages.length === 0) return false
-  return shouldShowFirstPage.value && pages[0] > 2
-})
-
-const showTrailingEllipsis = computed(() => {
-  const pages = pageNumbers.value
-  if (pages.length === 0) return false
-  return shouldShowLastPage.value && pages[pages.length - 1] < totalPages.value - 1
-})
-
-// 获取分页后的数据（现在由后端处理，直接返回当前数据）
+// 保持模板命名兼容，当前列表已取消前端分页
 const paginatedApiKeys = computed(() => {
-  // 后端已经分页，直接返回
-  return apiKeys.value
+  return sortedApiKeys.value
 })
 
 // 加载账户列表（支持缓存和强制刷新）
@@ -2604,113 +2747,98 @@ const loadUsedModels = async () => {
   }
 }
 
-// 加载API Keys（使用后端分页）
-const loadApiKeys = async (clearStatsCache = true) => {
-  apiKeysLoading.value = true
-  try {
-    // 清除缓存（刷新时）
-    if (clearStatsCache) {
-      statsCache.value.clear()
-      lastUsageCache.value.clear()
-    }
+const buildApiKeyListParams = (page) => {
+  const params = new URLSearchParams()
 
-    // 构建请求参数
-    const params = new URLSearchParams()
+  params.set('page', page.toString())
+  params.set('pageSize', API_KEY_LIST_LOAD_PAGE_SIZE.toString())
 
-    // 分页参数
-    params.set('page', currentPage.value.toString())
-    params.set('pageSize', pageSize.value.toString())
+  params.set('searchMode', searchMode.value)
+  if (searchKeyword.value) {
+    params.set('search', searchKeyword.value)
+  }
 
-    // 搜索参数
-    params.set('searchMode', searchMode.value)
-    if (searchKeyword.value) {
-      params.set('search', searchKeyword.value)
-    }
+  if (selectedTagFilter.value) {
+    params.set('tag', selectedTagFilter.value)
+  }
 
-    // 筛选参数
-    if (selectedTagFilter.value) {
-      params.set('tag', selectedTagFilter.value)
-    }
+  if (selectedModels.value.length > 0) {
+    params.set('models', selectedModels.value.join(','))
+  }
 
-    // 模型筛选参数
-    if (selectedModels.value.length > 0) {
-      params.set('models', selectedModels.value.join(','))
-    }
+  const effectiveSortBy = API_KEY_BACKEND_SORT_FIELDS.includes(apiKeysSortBy.value)
+    ? apiKeysSortBy.value
+    : 'createdAt'
+  const effectiveSortOrder =
+    apiKeysSortBy.value === API_KEY_CUSTOM_SORT_BY ? 'desc' : apiKeysSortOrder.value
 
-    // 排序参数（支持费用排序）
-    const validSortFields = [
-      'name',
-      'createdAt',
-      'expiresAt',
-      'lastUsedAt',
-      'isActive',
-      'status',
-      'cost'
-    ]
-    const effectiveSortBy = validSortFields.includes(apiKeysSortBy.value)
-      ? apiKeysSortBy.value
-      : 'createdAt'
-    params.set('sortBy', effectiveSortBy)
-    params.set('sortOrder', apiKeysSortOrder.value)
+  params.set('sortBy', effectiveSortBy)
+  params.set('sortOrder', effectiveSortOrder)
 
-    // 如果是费用排序，添加费用相关参数
-    if (effectiveSortBy === 'cost') {
-      if (
-        globalDateFilter.type === 'custom' &&
-        globalDateFilter.customStart &&
-        globalDateFilter.customEnd
-      ) {
-        params.set('costTimeRange', 'custom')
-        params.set('costStartDate', globalDateFilter.customStart)
-        params.set('costEndDate', globalDateFilter.customEnd)
-      } else {
-        // 使用当前的时间范围预设
-        params.set('costTimeRange', globalDateFilter.preset || '7days')
-      }
-    }
-
-    // 时间范围（用于标记，不用于费用计算）
+  if (effectiveSortBy === 'cost') {
     if (
       globalDateFilter.type === 'custom' &&
       globalDateFilter.customStart &&
       globalDateFilter.customEnd
     ) {
-      params.set('startDate', globalDateFilter.customStart)
-      params.set('endDate', globalDateFilter.customEnd)
-      params.set('timeRange', 'custom')
-    } else if (globalDateFilter.preset === 'all') {
-      params.set('timeRange', 'all')
+      params.set('costTimeRange', 'custom')
+      params.set('costStartDate', globalDateFilter.customStart)
+      params.set('costEndDate', globalDateFilter.customEnd)
     } else {
-      params.set('timeRange', globalDateFilter.preset)
+      params.set('costTimeRange', globalDateFilter.preset || '7days')
+    }
+  }
+
+  if (
+    globalDateFilter.type === 'custom' &&
+    globalDateFilter.customStart &&
+    globalDateFilter.customEnd
+  ) {
+    params.set('startDate', globalDateFilter.customStart)
+    params.set('endDate', globalDateFilter.customEnd)
+    params.set('timeRange', 'custom')
+  } else if (globalDateFilter.preset === 'all') {
+    params.set('timeRange', 'all')
+  } else {
+    params.set('timeRange', globalDateFilter.preset)
+  }
+
+  return params
+}
+
+// 加载API Keys（后端按 50/页返回，前端拉取全量后展示）
+const loadApiKeys = async (clearStatsCache = true) => {
+  apiKeysLoading.value = true
+  try {
+    if (clearStatsCache) {
+      statsCache.value.clear()
+      lastUsageCache.value.clear()
     }
 
-    const data = await httpApis.getApiKeysWithParamsApi(params.toString())
-    if (data.success) {
-      // 更新数据
-      apiKeys.value = data.data?.items || []
+    const allApiKeys = []
+    let page = 1
+    let totalPages = 1
 
-      // 更新分页信息
-      if (data.data?.pagination) {
-        serverPagination.value = data.data.pagination
-        // 同步当前页码（处理页面超出范围的情况）
-        if (
-          currentPage.value > serverPagination.value.totalPages &&
-          serverPagination.value.totalPages > 0
-        ) {
-          currentPage.value = serverPagination.value.totalPages
-        }
+    do {
+      const data = await httpApis.getApiKeysWithParamsApi(buildApiKeyListParams(page).toString())
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to load API Keys')
       }
 
-      // 更新可用标签列表
       if (data.data?.availableTags) {
         availableTags.value = data.data.availableTags
       }
 
-      // 异步加载当前页的统计数据（不等待，让页面先显示基础数据）
-      loadPageStats()
-      // 异步加载当前页的最后使用账号数据
-      loadPageLastUsage()
-    }
+      allApiKeys.push(...(data.data?.items || []))
+      totalPages = data.data?.pagination?.totalPages || 1
+      page += 1
+    } while (page <= totalPages)
+
+    apiKeys.value = allApiKeys
+    syncApiKeyCustomOrder(allApiKeys)
+
+    loadPageStats()
+    loadPageLastUsage()
   } catch {
     showToast('加载 API Keys 失败', 'error')
   } finally {
@@ -4131,31 +4259,30 @@ const batchDeleteApiKeys = async () => {
 // 处理全选/取消全选
 const handleSelectAll = () => {
   if (selectAllChecked.value) {
-    // 全选当前页的所有API Keys
+    // 全选当前列表的所有 API Keys
     paginatedApiKeys.value.forEach((key) => {
       if (!selectedApiKeys.value.includes(key.id)) {
         selectedApiKeys.value.push(key.id)
       }
     })
   } else {
-    // 取消全选：只移除当前页的选中项，保留其他页面的选中项
-    const currentPageIds = new Set(paginatedApiKeys.value.map((key) => key.id))
-    selectedApiKeys.value = selectedApiKeys.value.filter((id) => !currentPageIds.has(id))
+    const currentListIds = new Set(paginatedApiKeys.value.map((key) => key.id))
+    selectedApiKeys.value = selectedApiKeys.value.filter((id) => !currentListIds.has(id))
   }
   updateSelectAllState()
 }
 
 // 更新全选状态
 const updateSelectAllState = () => {
-  const totalInCurrentPage = paginatedApiKeys.value.length
-  const selectedInCurrentPage = paginatedApiKeys.value.filter((key) =>
+  const totalInCurrentList = paginatedApiKeys.value.length
+  const selectedInCurrentList = paginatedApiKeys.value.filter((key) =>
     selectedApiKeys.value.includes(key.id)
   ).length
 
-  if (selectedInCurrentPage === 0) {
+  if (selectedInCurrentList === 0) {
     selectAllChecked.value = false
     isIndeterminate.value = false
-  } else if (selectedInCurrentPage === totalInCurrentPage) {
+  } else if (selectedInCurrentList === totalInCurrentList) {
     selectAllChecked.value = true
     isIndeterminate.value = false
   } else {
@@ -4448,7 +4575,6 @@ const isLastUsageDeleted = (apiKey) => {
 // 清除搜索
 const clearSearch = () => {
   searchKeyword.value = ''
-  currentPage.value = 1
 }
 
 // 导出数据到Excel
@@ -4748,15 +4874,6 @@ const exportToExcel = () => {
   }
 }
 
-// 监听筛选条件变化，重置页码和选中状态
-// 监听筛选条件变化（不包括搜索），清空选中状态
-watch([selectedTagFilter, apiKeyStatsTimeRange], () => {
-  currentPage.value = 1
-  // 清空选中状态
-  selectedApiKeys.value = []
-  updateSelectAllState()
-})
-
 // 搜索防抖定时器
 let searchDebounceTimer = null
 
@@ -4768,46 +4885,36 @@ watch(searchKeyword, () => {
   }
   // 设置防抖（300ms）
   searchDebounceTimer = setTimeout(() => {
-    currentPage.value = 1
+    selectedApiKeys.value = []
     loadApiKeys(false) // 不清除统计缓存
+    updateSelectAllState()
   }, 300)
 })
 
 // 监听搜索模式变化，重新加载数据
 watch(searchMode, () => {
-  currentPage.value = 1
+  selectedApiKeys.value = []
   loadApiKeys(false)
+  updateSelectAllState()
 })
 
 // 监听标签筛选变化，重新加载数据
 watch(selectedTagFilter, () => {
-  currentPage.value = 1
+  selectedApiKeys.value = []
   loadApiKeys(false)
+  updateSelectAllState()
 })
 
 // 监听模型筛选变化
 watch(selectedModels, () => {
-  currentPage.value = 1
+  selectedApiKeys.value = []
   loadApiKeys(false)
+  updateSelectAllState()
 })
 
 // 监听排序变化，重新加载数据
 watch([apiKeysSortBy, apiKeysSortOrder], () => {
   loadApiKeys(false)
-})
-
-// 监听分页变化，重新加载数据
-watch([currentPage, pageSize], ([newPage, newPageSize], [oldPage, oldPageSize]) => {
-  // 只有页码或每页数量真正变化时才重新加载
-  if (newPage !== oldPage || newPageSize !== oldPageSize) {
-    loadApiKeys(false)
-  }
-  updateSelectAllState()
-})
-
-// 监听每页显示条数变化，保存到 localStorage
-watch(pageSize, (newSize) => {
-  localStorage.setItem('apiKeysPageSize', newSize.toString())
 })
 
 // 监听API Keys数据变化，清理无效的选中状态
@@ -4915,6 +5022,15 @@ onUnmounted(() => {
 
 .dark .table-container tbody tr:hover > td {
   background-color: rgba(var(--primary-rgb), 0.16) !important;
+}
+
+.table-container tbody tr.api-key-drag-over > td {
+  background-color: rgba(var(--primary-rgb), 0.12) !important;
+  box-shadow: inset 0 2px 0 rgba(var(--primary-rgb), 0.55);
+}
+
+.dark .table-container tbody tr.api-key-drag-over > td {
+  background-color: rgba(var(--primary-rgb), 0.22) !important;
 }
 
 /* 所有 td 的斑马纹背景 */
