@@ -21,6 +21,7 @@ Claude Code → CCR (模型路由) → CRS (账户调度) → Gemini API
 安装 CCR：
 
 > **安装位置建议**：
+>
 > - 如果只是本地使用，可以只安装到使用 Claude Code 的电脑上
 > - 如果需要 CRS 项目接入 CCR，建议安装在与 CRS 同一台服务器上
 
@@ -71,11 +72,11 @@ ccr -v
 
 ### 配置说明
 
-| 字段 | 说明 |
-|------|------|
-| `APIKEY` | CCR 自定义的 API Key，Claude Code 将使用这个 Key 访问 CCR |
-| `api_base_url` | CRS 服务的 Gemini API 地址 |
-| `api_key` | CRS 后台创建的 API Key（cr_ 开头），用于调度 OAuth、Gemini-API 账号 |
+| 字段           | 说明                                                                 |
+| -------------- | -------------------------------------------------------------------- |
+| `APIKEY`       | CCR 自定义的 API Key，Claude Code 将使用这个 Key 访问 CCR            |
+| `api_base_url` | CRS 服务的 Gemini API 地址                                           |
+| `api_key`      | CRS 后台创建的 API Key（cr\_ 开头），用于调度 OAuth、Gemini-API 账号 |
 
 ---
 
@@ -145,30 +146,31 @@ claude
 
 登录 CRS 管理界面，添加一个 **Claude Console** 类型的账号：
 
-| 字段 | 值 |
-|------|-----|
-| 账户名称 | CCR-Gemini3（或自定义名称）|
-| 账户类型 | Claude Console |
-| API 地址 | `http://127.0.0.1:3456`（CCR 服务地址）|
-| API Key | `sk-c0e7fed7b-你的自定义Key`（CCR 配置中的 APIKEY）|
+| 字段     | 值                                                  |
+| -------- | --------------------------------------------------- |
+| 账户名称 | CCR-Gemini3（或自定义名称）                         |
+| 账户类型 | Claude Console                                      |
+| API 地址 | `http://127.0.0.1:3456`（CCR 服务地址）             |
+| API Key  | `sk-c0e7fed7b-你的自定义Key`（CCR 配置中的 APIKEY） |
 
-> **注意**：如果 CCR 运行在其他服务器上，请将 `127.0.0.1` 替换为实际的服务器地址，配置文件中需要修改HOST参数为```0.0.0.0```。
+> **注意**：如果 CCR 运行在其他服务器上，请将 `127.0.0.1` 替换为实际的服务器地址，配置文件中需要修改HOST参数为`0.0.0.0`。
 
 #### 2. 配置模型映射
 
 在 CRS 中配置模型映射，将 Claude 模型名映射到 Gemini 模型：
 
-| Claude 模型 | 映射到 Gemini 模型 |
-|-------------|-------------------|
-| `claude-opus-4-1-20250805` | `gemini-3-pro-preview` |
+| Claude 模型                  | 映射到 Gemini 模型     |
+| ---------------------------- | ---------------------- |
+| `claude-opus-4-1-20250805`   | `gemini-3-pro-preview` |
 | `claude-sonnet-4-5-20250929` | `gemini-3-pro-preview` |
-| `claude-haiku-4-5-20251001` | `gemini-2.5-flash` |
+| `claude-haiku-4-5-20251001`  | `gemini-2.5-flash`     |
 
 **配置界面示例：**
 
 ![模型映射配置](./model-mapping.png)
 
 > **说明**：
+>
 > - Opus 和 Sonnet 映射到性能更强的 `gemini-3-pro-preview`
 > - Haiku 映射到响应更快的 `gemini-2.5-flash`
 
@@ -198,6 +200,7 @@ ccr restart
 ### Q: 连接超时怎么办？
 
 A: 检查以下几点：
+
 1. CRS 服务是否正常运行
 2. CCR 配置中的 `api_base_url` 是否正确
 3. 防火墙是否允许相应端口
@@ -206,9 +209,10 @@ A: 检查以下几点：
 ### Q: 模型映射不生效？
 
 A: 确保：
+
 1. CRS 中已正确配置 Claude Console 账号
 2. 模型映射配置已保存
-3. 重启 CRS 服务使配置生效
+3. 重启 CRS 服务使配置生效：`pm2 restart claude-relay --update-env`
 
 ### Q: 如何测试连接？
 

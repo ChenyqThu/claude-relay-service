@@ -86,8 +86,9 @@ async function setup() {
     }
 
     console.log(chalk.blue('🚀 启动服务：\n'))
-    console.log('   npm start              - 启动生产服务')
-    console.log('   npm run dev            - 启动开发服务')
+    console.log('   npm run service:start  - 使用 PM2 启动/重启常驻服务')
+    console.log('   npm run service:status - 查看 PM2 服务状态')
+    console.log('   npm run dev            - 临时前台开发服务')
     console.log('   npm run cli admin      - 管理员CLI工具\n')
 
     console.log(chalk.blue('🌐 访问地址：\n'))
@@ -113,7 +114,9 @@ function checkInitialized() {
     console.log(chalk.red('\n⚠️  重要提示：'))
     console.log('   1. 删除 init.json 文件后运行 npm run setup')
     console.log('   2. 生成新的账号密码后，需要重启服务才能生效')
-    console.log('   3. 使用 npm run service:restart 重启服务\n')
+    console.log(
+      '   3. 使用 npm run service:restart 或 pm2 restart claude-relay --update-env 重启服务\n'
+    )
     return true
   }
   return false

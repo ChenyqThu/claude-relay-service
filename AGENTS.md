@@ -12,13 +12,13 @@ Codex Relay Service — 多平台 AI API 中转服务，作为客户端与上游
 
 ### Clean Architecture 分层映射
 
-| 层级 | 目录 | 职责 |
-|------|------|------|
-| **框架层** | `src/routes/`, `src/middleware/` | HTTP 路由、请求验证、响应格式化 |
-| **接口适配层** | `src/handlers/`, `src/services/openaiToClaude.js` | 请求/响应格式转换 |
-| **用例层** | `src/services/*Scheduler.js`, `*RelayService.js` | 调度逻辑、转发编排 |
-| **实体层** | `src/services/*AccountService.js`, `src/models/` | 账户管理、数据模型 |
-| **基础设施层** | `src/utils/`, `config/` | 日志、缓存、加密、代理 |
+| 层级           | 目录                                              | 职责                            |
+| -------------- | ------------------------------------------------- | ------------------------------- |
+| **框架层**     | `src/routes/`, `src/middleware/`                  | HTTP 路由、请求验证、响应格式化 |
+| **接口适配层** | `src/handlers/`, `src/services/openaiToClaude.js` | 请求/响应格式转换               |
+| **用例层**     | `src/services/*Scheduler.js`, `*RelayService.js`  | 调度逻辑、转发编排              |
+| **实体层**     | `src/services/*AccountService.js`, `src/models/`  | 账户管理、数据模型              |
+| **基础设施层** | `src/utils/`, `config/`                           | 日志、缓存、加密、代理          |
 
 ### 开发原则
 
@@ -75,6 +75,7 @@ data/init.json            # 管理员凭据
 ```
 
 关键机制：
+
 - **粘性会话**: 基于请求内容 hash 绑定账户，同一会话用同一账户
 - **并发控制**: Redis Sorted Set 实现，支持排队等待（非直接 429）
 - **529 处理**: 自动标记过载账户，配置时长内排除
@@ -98,7 +99,16 @@ data/init.json            # 管理员凭据
 3. **格式化** → `npx prettier --write <修改的文件>`
 4. **检查** → `npm run lint`
 5. **测试** → `npm test`
-6. **验证** → `npm run cli status` 确认服务正常
+6. **验证** → `pm2 describe claude-relay` 和 `curl http://127.0.0.1:8765/health` 确认服务正常
+
+### 本地服务运维（强制）
+
+- **本机服务由 PM2 管理，PM2 进程名固定为 `claude-relay`**。
+- 重启服务必须使用 `pm2 restart claude-relay --update-env`，或等价的 `npm run service:restart`（该 npm script 已包装 PM2）。
+- 查看服务状态使用 `pm2 describe claude-relay` 或 `npm run service:status`，再用 `curl http://127.0.0.1:8765/health` 验证健康状态。
+- 查看日志使用 `pm2 logs claude-relay --lines 100 --nostream`，持续跟随日志才使用 `pm2 logs claude-relay --lines 100`。
+- **不要**用 PID 文件、`node src/app.js &`、`nohup node src/app.js`、旧版 `scripts/manage.js` PID 逻辑来管理本机服务；这些会和 PM2 状态脱节，导致误判“服务未运行”或端口冲突。
+- `npm start` 和 `npm run dev` 只用于临时前台调试，不用于本机常驻服务运维。
 
 ### 测试规范
 
@@ -116,12 +126,12 @@ data/init.json            # 管理员凭据
 
 暗黑模式配色对照：
 
-| 元素 | 明亮模式 | 暗黑模式 |
-|------|----------|----------|
-| 文本 | `text-gray-700` | `dark:text-gray-200` |
-| 背景 | `bg-white` | `dark:bg-gray-800` |
-| 边框 | `border-gray-200` | `dark:border-gray-700` |
-| 状态色 | `text-blue-500` / `text-green-600` / `text-red-500` | 保持一致 |
+| 元素   | 明亮模式                                            | 暗黑模式               |
+| ------ | --------------------------------------------------- | ---------------------- |
+| 文本   | `text-gray-700`                                     | `dark:text-gray-200`   |
+| 背景   | `bg-white`                                          | `dark:bg-gray-800`     |
+| 边框   | `border-gray-200`                                   | `dark:border-gray-700` |
+| 状态色 | `text-blue-500` / `text-green-600` / `text-red-500` | 保持一致               |
 
 ### 代码修改原则
 
@@ -133,8 +143,13 @@ data/init.json            # 管理员凭据
 
 ```bash
 npm install && npm run setup    # 初始化
-npm run dev                     # 开发模式（nodemon 热重载，自动 lint）
-npm start                       # 生产模式（先 lint 再启动）
+pm2 restart claude-relay --update-env # 重启本机常驻服务
+pm2 describe claude-relay       # 查看 PM2 服务状态
+curl http://127.0.0.1:8765/health # 健康检查
+npm run service:restart         # 等价 PM2 重启包装
+npm run service:status          # 等价 PM2 状态包装
+npm run dev                     # 临时前台开发模式（不用于常驻服务）
+npm start                       # 临时前台生产启动（不用于常驻服务）
 npm run lint                    # ESLint 检查并自动修复
 npm run lint:check              # ESLint 仅检查不修复
 npm run format                  # Prettier 格式化所有后端文件
@@ -142,7 +157,7 @@ npm run format:check            # Prettier 仅检查格式
 npm test                        # Jest 运行所有测试（tests/ 目录）
 npm test -- <文件名>             # 运行单个测试，如: npm test -- pricingService
 npm test -- --coverage          # 运行测试并生成覆盖率报告
-npm run cli status              # 系统状态
+npm run cli status              # 业务/系统状态（不是服务进程管理）
 npm run data:export             # 导出 Redis 数据
 npm run data:debug              # 调试 Redis 键
 ```
@@ -165,18 +180,18 @@ cd web/admin-spa && npm run dev # 前端开发模式（Vite HMR）
 
 ## 故障排除
 
-| 问题 | 排查方向 |
-|------|----------|
-| Redis 连接失败 | 检查 REDIS_HOST/PORT/PASSWORD |
-| 管理员登录失败 | 检查 data/init.json，运行 `npm run setup` |
-| API Key 格式错误 | 确保使用 `cr_` 前缀格式（可通过 API_KEY_PREFIX 配置） |
-| Token 刷新失败 | 检查 refreshToken 有效性和代理配置，查看 `logs/token-refresh-error.log` |
-| 调度器选账户失败 | 检查账户 status:'active'，确认类型与路由匹配，查看粘性会话绑定 |
-| 并发计数泄漏 | 系统每分钟自动清理，重启也会清理 |
-| 粘性会话失效 | 检查 Redis 中 session 数据，Nginx 代理需添加 `underscores_in_headers on` |
-| LDAP 认证失败 | 检查 LDAP_URL/BIND_DN/BIND_PASSWORD，自签名证书设 `LDAP_TLS_REJECT_UNAUTHORIZED=false` |
-| Webhook 通知失败 | 确认 WEBHOOK_ENABLED=true，检查 WEBHOOK_URLS 格式，查看 `logs/webhook-*.log` |
-| 成本统计不准确 | 运行 `npm run init:costs`，检查 pricingService 模型价格 |
+| 问题             | 排查方向                                                                               |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| Redis 连接失败   | 检查 REDIS_HOST/PORT/PASSWORD                                                          |
+| 管理员登录失败   | 检查 data/init.json，运行 `npm run setup`                                              |
+| API Key 格式错误 | 确保使用 `cr_` 前缀格式（可通过 API_KEY_PREFIX 配置）                                  |
+| Token 刷新失败   | 检查 refreshToken 有效性和代理配置，查看 `logs/token-refresh-error.log`                |
+| 调度器选账户失败 | 检查账户 status:'active'，确认类型与路由匹配，查看粘性会话绑定                         |
+| 并发计数泄漏     | 系统每分钟自动清理；本机重启使用 `pm2 restart claude-relay --update-env`               |
+| 粘性会话失效     | 检查 Redis 中 session 数据，Nginx 代理需添加 `underscores_in_headers on`               |
+| LDAP 认证失败    | 检查 LDAP_URL/BIND_DN/BIND_PASSWORD，自签名证书设 `LDAP_TLS_REJECT_UNAUTHORIZED=false` |
+| Webhook 通知失败 | 确认 WEBHOOK_ENABLED=true，检查 WEBHOOK_URLS 格式，查看 `logs/webhook-*.log`           |
+| 成本统计不准确   | 运行 `npm run init:costs`，检查 pricingService 模型价格                                |
 
 日志：`logs/` 目录。Web 界面 `/admin-next/` 可实时查看。
 
