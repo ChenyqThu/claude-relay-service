@@ -5,7 +5,11 @@ const ccrAccountService = require('../account/ccrAccountService')
 const accountGroupService = require('../accountGroupService')
 const redis = require('../../models/redis')
 const logger = require('../../utils/logger')
-const { parseVendorPrefixedModel, isOpus45OrNewer } = require('../../utils/modelHelper')
+const {
+  parseVendorPrefixedModel,
+  stripLongContextSuffix,
+  isOpus45OrNewer
+} = require('../../utils/modelHelper')
 const { isSchedulable, sortAccountsByPriority } = require('../../utils/commonHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 
@@ -179,6 +183,8 @@ class UnifiedClaudeScheduler {
     forcedAccount = null
   ) {
     try {
+      const normalizedRequestedModel = stripLongContextSuffix(requestedModel)
+
       // 🔒 如果有强制绑定的账户（全局会话绑定），仅 claude-official 类型受影响
       if (forcedAccount && forcedAccount.accountId && forcedAccount.accountType) {
         // ⚠️ 只有 claude-official 类型账户受全局会话绑定限制
@@ -197,7 +203,7 @@ class UnifiedClaudeScheduler {
           const isAvailable = await this._isAccountAvailableForSessionBinding(
             forcedAccount.accountId,
             forcedAccount.accountType,
-            requestedModel
+            normalizedRequestedModel
           )
 
           if (isAvailable) {
@@ -223,8 +229,8 @@ class UnifiedClaudeScheduler {
       }
 
       // 解析供应商前缀
-      const { vendor, baseModel } = parseVendorPrefixedModel(requestedModel)
-      const effectiveModel = vendor === 'ccr' ? baseModel : requestedModel
+      const { vendor, baseModel } = parseVendorPrefixedModel(normalizedRequestedModel)
+      const effectiveModel = vendor === 'ccr' ? baseModel : normalizedRequestedModel
 
       logger.debug(
         `🔍 Model parsing - Original: ${requestedModel}, Vendor: ${vendor}, Effective: ${effectiveModel}`

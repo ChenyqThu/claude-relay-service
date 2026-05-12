@@ -13,6 +13,7 @@ const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const userMessageQueueService = require('../userMessageQueueService')
 const { isStreamWritable } = require('../../utils/streamHelper')
 const { filterForClaude } = require('../../utils/headerFilter')
+const { stripLongContextSuffix } = require('../../utils/modelHelper')
 
 class ClaudeConsoleRelayService {
   constructor() {
@@ -141,7 +142,7 @@ class ClaudeConsoleRelayService {
       logger.debug(`📝 Request model: ${requestBody.model}`)
 
       // 处理模型映射
-      let mappedModel = requestBody.model
+      let mappedModel = stripLongContextSuffix(requestBody.model)
       if (
         account.supportedModels &&
         typeof account.supportedModels === 'object' &&
@@ -627,7 +628,7 @@ class ClaudeConsoleRelayService {
       logger.debug(`🌐 Account API URL: ${account.apiUrl}`)
 
       // 处理模型映射
-      let mappedModel = requestBody.model
+      let mappedModel = stripLongContextSuffix(requestBody.model)
       if (
         account.supportedModels &&
         typeof account.supportedModels === 'object' &&

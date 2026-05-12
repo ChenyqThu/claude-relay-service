@@ -6,6 +6,7 @@ const logger = require('../../utils/logger')
 const config = require('../../../config/config')
 const LRUCache = require('../../utils/lruCache')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+const { stripLongContextSuffix } = require('../../utils/modelHelper')
 
 class ClaudeConsoleAccountService {
   constructor() {
@@ -1273,18 +1274,26 @@ class ClaudeConsoleAccountService {
 
   // 🔍 检查模型是否支持（用于调度）
   isModelSupported(modelMapping, requestedModel) {
+    const normalizedRequestedModel = stripLongContextSuffix(requestedModel)
+
     // 如果映射表为空，支持所有模型
     if (!modelMapping || Object.keys(modelMapping).length === 0) {
       return true
     }
+    if (!normalizedRequestedModel || typeof normalizedRequestedModel !== 'string') {
+      return false
+    }
 
     // 检查请求的模型是否在映射表的键中（精确匹配）
-    if (Object.prototype.hasOwnProperty.call(modelMapping, requestedModel)) {
+    if (
+      Object.prototype.hasOwnProperty.call(modelMapping, requestedModel) ||
+      Object.prototype.hasOwnProperty.call(modelMapping, normalizedRequestedModel)
+    ) {
       return true
     }
 
     // 尝试大小写不敏感匹配
-    const requestedModelLower = requestedModel.toLowerCase()
+    const requestedModelLower = normalizedRequestedModel.toLowerCase()
     for (const key of Object.keys(modelMapping)) {
       if (key.toLowerCase() === requestedModelLower) {
         return true
@@ -1296,8 +1305,13 @@ class ClaudeConsoleAccountService {
 
   // 🔄 获取映射后的模型名称
   getMappedModel(modelMapping, requestedModel) {
+    const normalizedRequestedModel = stripLongContextSuffix(requestedModel)
+
     // 如果映射表为空，返回原模型
     if (!modelMapping || Object.keys(modelMapping).length === 0) {
+      return normalizedRequestedModel
+    }
+    if (!normalizedRequestedModel || typeof normalizedRequestedModel !== 'string') {
       return requestedModel
     }
 
@@ -1305,9 +1319,12 @@ class ClaudeConsoleAccountService {
     if (modelMapping[requestedModel]) {
       return modelMapping[requestedModel]
     }
+    if (modelMapping[normalizedRequestedModel]) {
+      return modelMapping[normalizedRequestedModel]
+    }
 
     // 大小写不敏感匹配
-    const requestedModelLower = requestedModel.toLowerCase()
+    const requestedModelLower = normalizedRequestedModel.toLowerCase()
     for (const [key, value] of Object.entries(modelMapping)) {
       if (key.toLowerCase() === requestedModelLower) {
         return value
@@ -1315,7 +1332,7 @@ class ClaudeConsoleAccountService {
     }
 
     // 如果不存在则返回原模型
-    return requestedModel
+    return normalizedRequestedModel
   }
 
   // 💰 检查账户使用额度（基于实时统计数据）

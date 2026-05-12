@@ -2,7 +2,7 @@ const axios = require('axios')
 const ccrAccountService = require('../account/ccrAccountService')
 const logger = require('../../utils/logger')
 const config = require('../../../config/config')
-const { parseVendorPrefixedModel } = require('../../utils/modelHelper')
+const { parseVendorPrefixedModel, stripLongContextSuffix } = require('../../utils/modelHelper')
 const userMessageQueueService = require('../userMessageQueueService')
 const { isStreamWritable } = require('../../utils/streamHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
@@ -101,17 +101,18 @@ class CcrRelayService {
 
       // 处理模型前缀解析和映射
       const { baseModel } = parseVendorPrefixedModel(requestBody.model)
+      const cleanBaseModel = stripLongContextSuffix(baseModel)
       logger.debug(`🔄 Parsed base model: ${baseModel} from original: ${requestBody.model}`)
 
-      let mappedModel = baseModel
+      let mappedModel = cleanBaseModel
       if (
         account.supportedModels &&
         typeof account.supportedModels === 'object' &&
         !Array.isArray(account.supportedModels)
       ) {
-        const newModel = ccrAccountService.getMappedModel(account.supportedModels, baseModel)
-        if (newModel !== baseModel) {
-          logger.info(`🔄 Mapping model from ${baseModel} to ${newModel}`)
+        const newModel = ccrAccountService.getMappedModel(account.supportedModels, cleanBaseModel)
+        if (newModel !== cleanBaseModel) {
+          logger.info(`🔄 Mapping model from ${cleanBaseModel} to ${newModel}`)
           mappedModel = newModel
         }
       }
@@ -465,17 +466,18 @@ class CcrRelayService {
 
       // 处理模型前缀解析和映射
       const { baseModel } = parseVendorPrefixedModel(requestBody.model)
+      const cleanBaseModel = stripLongContextSuffix(baseModel)
       logger.debug(`🔄 Parsed base model: ${baseModel} from original: ${requestBody.model}`)
 
-      let mappedModel = baseModel
+      let mappedModel = cleanBaseModel
       if (
         account.supportedModels &&
         typeof account.supportedModels === 'object' &&
         !Array.isArray(account.supportedModels)
       ) {
-        const newModel = ccrAccountService.getMappedModel(account.supportedModels, baseModel)
-        if (newModel !== baseModel) {
-          logger.info(`🔄 [Stream] Mapping model from ${baseModel} to ${newModel}`)
+        const newModel = ccrAccountService.getMappedModel(account.supportedModels, cleanBaseModel)
+        if (newModel !== cleanBaseModel) {
+          logger.info(`🔄 [Stream] Mapping model from ${cleanBaseModel} to ${newModel}`)
           mappedModel = newModel
         }
       }

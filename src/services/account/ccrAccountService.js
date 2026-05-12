@@ -4,6 +4,7 @@ const redis = require('../../models/redis')
 const logger = require('../../utils/logger')
 const { createEncryptor } = require('../../utils/commonHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+const { stripLongContextSuffix } = require('../../utils/modelHelper')
 
 class CcrAccountService {
   constructor() {
@@ -595,18 +596,26 @@ class CcrAccountService {
 
   // 🔍 检查模型是否被支持
   isModelSupported(modelMapping, requestedModel) {
+    const normalizedRequestedModel = stripLongContextSuffix(requestedModel)
+
     // 如果映射表为空，支持所有模型
     if (!modelMapping || Object.keys(modelMapping).length === 0) {
       return true
     }
+    if (!normalizedRequestedModel || typeof normalizedRequestedModel !== 'string') {
+      return false
+    }
 
     // 检查请求的模型是否在映射表的键中（精确匹配）
-    if (Object.prototype.hasOwnProperty.call(modelMapping, requestedModel)) {
+    if (
+      Object.prototype.hasOwnProperty.call(modelMapping, requestedModel) ||
+      Object.prototype.hasOwnProperty.call(modelMapping, normalizedRequestedModel)
+    ) {
       return true
     }
 
     // 尝试大小写不敏感匹配
-    const requestedModelLower = requestedModel.toLowerCase()
+    const requestedModelLower = normalizedRequestedModel.toLowerCase()
     for (const key of Object.keys(modelMapping)) {
       if (key.toLowerCase() === requestedModelLower) {
         return true
@@ -618,8 +627,13 @@ class CcrAccountService {
 
   // 🔄 获取映射后的模型名称
   getMappedModel(modelMapping, requestedModel) {
+    const normalizedRequestedModel = stripLongContextSuffix(requestedModel)
+
     // 如果映射表为空，返回原模型
     if (!modelMapping || Object.keys(modelMapping).length === 0) {
+      return normalizedRequestedModel
+    }
+    if (!normalizedRequestedModel || typeof normalizedRequestedModel !== 'string') {
       return requestedModel
     }
 
@@ -627,9 +641,12 @@ class CcrAccountService {
     if (modelMapping[requestedModel]) {
       return modelMapping[requestedModel]
     }
+    if (modelMapping[normalizedRequestedModel]) {
+      return modelMapping[normalizedRequestedModel]
+    }
 
     // 大小写不敏感匹配
-    const requestedModelLower = requestedModel.toLowerCase()
+    const requestedModelLower = normalizedRequestedModel.toLowerCase()
     for (const [key, value] of Object.entries(modelMapping)) {
       if (key.toLowerCase() === requestedModelLower) {
         return value
@@ -637,7 +654,7 @@ class CcrAccountService {
     }
 
     // 如果不存在映射则返回原模型名
-    return requestedModel
+    return normalizedRequestedModel
   }
 
   // 🔐 加密敏感数据
