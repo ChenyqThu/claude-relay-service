@@ -41,8 +41,7 @@ const scheduler = require('../src/services/scheduler/unifiedOpenAIScheduler')
 
 const imageSelectionOptions = {
   purpose: 'image-generation',
-  preferAccountTypes: ['openai-responses', 'openai'],
-  requireOpenAICodexImageGeneration: true
+  preferAccountTypes: ['openai', 'openai-responses']
 }
 
 function createRedisClient() {
@@ -89,14 +88,30 @@ describe('unifiedOpenAIScheduler image selection', () => {
     openaiAccountService.getAccount.mockResolvedValue(null)
   })
 
-  test('prefers OpenAI-Responses accounts for image requests even when OpenAI has higher priority', async () => {
-    const codexDirectAccount = createOpenAIAccount({
-      codexImageGenerationEnabled: 'true',
-      priority: 1
-    })
-    const responsesAccount = createResponsesAccount({ priority: 99 })
+  test('prefers Codex OAuth accounts for image requests even when Responses has higher priority', async () => {
+    const codexDirectAccount = createOpenAIAccount({ priority: 99 })
+    const responsesAccount = createResponsesAccount({ priority: 1 })
 
     openaiAccountService.getAllAccounts.mockResolvedValue([codexDirectAccount])
+    openaiResponsesAccountService.getAllAccounts.mockResolvedValue([responsesAccount])
+
+    const selected = await scheduler.selectAccountForApiKey(
+      { id: 'key-1', name: 'image key' },
+      null,
+      'gpt-5',
+      imageSelectionOptions
+    )
+
+    expect(selected).toEqual({
+      accountId: 'openai-1',
+      accountType: 'openai'
+    })
+  })
+
+  test('falls back to OpenAI-Responses when no Codex OAuth account is available', async () => {
+    const responsesAccount = createResponsesAccount({ priority: 99 })
+
+    openaiAccountService.getAllAccounts.mockResolvedValue([])
     openaiResponsesAccountService.getAllAccounts.mockResolvedValue([responsesAccount])
 
     const selected = await scheduler.selectAccountForApiKey(
@@ -112,26 +127,8 @@ describe('unifiedOpenAIScheduler image selection', () => {
     })
   })
 
-  test('skips ordinary OpenAI OAuth accounts for image requests', async () => {
+  test('allows ordinary OpenAI OAuth accounts for Codex image requests', async () => {
     openaiAccountService.getAllAccounts.mockResolvedValue([createOpenAIAccount()])
-    openaiResponsesAccountService.getAllAccounts.mockResolvedValue([])
-
-    await expect(
-      scheduler.selectAccountForApiKey(
-        { id: 'key-1', name: 'image key' },
-        null,
-        'gpt-5',
-        imageSelectionOptions
-      )
-    ).rejects.toThrow('No available OpenAI image-capable accounts')
-  })
-
-  test('allows explicitly enabled Codex Direct OAuth accounts when no Responses provider exists', async () => {
-    openaiAccountService.getAllAccounts.mockResolvedValue([
-      createOpenAIAccount({
-        codexImageGenerationEnabled: 'true'
-      })
-    ])
     openaiResponsesAccountService.getAllAccounts.mockResolvedValue([])
 
     const selected = await scheduler.selectAccountForApiKey(

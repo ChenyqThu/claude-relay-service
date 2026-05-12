@@ -165,4 +165,74 @@ describe('openaiImageRelayService helpers', () => {
       }
     })
   })
+
+  test('patches completed events from response.output_item.done image calls', () => {
+    const completed = {
+      type: 'response.completed',
+      response: {
+        created_at: 1770000000,
+        output: [],
+        tool_usage: {
+          image_gen: {
+            input_tokens: 1,
+            output_tokens: 2,
+            total_tokens: 3
+          }
+        }
+      }
+    }
+    const outputItem = openaiImageRelayService.extractImageOutputItemDone({
+      type: 'response.output_item.done',
+      item: {
+        id: 'ig_1',
+        type: 'image_generation_call',
+        result: 'aW1hZ2U=',
+        output_format: 'png'
+      }
+    })
+
+    const patched = openaiImageRelayService.completedWithFallbackOutputItems(completed, [
+      outputItem
+    ])
+    const extracted = openaiImageRelayService.extractImageResultsFromCompleted(patched)
+
+    expect(extracted.results).toEqual([
+      expect.objectContaining({
+        result: 'aW1hZ2U=',
+        outputFormat: 'png'
+      })
+    ])
+    expect(extracted.usage).toEqual({
+      input_tokens: 1,
+      output_tokens: 2,
+      total_tokens: 3
+    })
+  })
+
+  test('builds Codex image headers that match the Codex TUI route', () => {
+    const headers = openaiImageRelayService._buildCodexHeaders(
+      {
+        headers: {
+          version: '1',
+          originator: 'custom-originator'
+        }
+      },
+      {
+        accessToken: 'access-token',
+        accountId: 'account-1',
+        account: {
+          accountId: 'chatgpt-account-id'
+        }
+      },
+      true
+    )
+
+    expect(headers.authorization).toBe('Bearer access-token')
+    expect(headers['chatgpt-account-id']).toBe('chatgpt-account-id')
+    expect(headers['user-agent']).toBe(openaiImageRelayService.CODEX_IMAGE_USER_AGENT)
+    expect(headers.originator).toBe('custom-originator')
+    expect(headers.connection).toBe('Keep-Alive')
+    expect(headers.session_id).toEqual(expect.any(String))
+    expect(headers['x-client-request-id']).toEqual(expect.any(String))
+  })
 })

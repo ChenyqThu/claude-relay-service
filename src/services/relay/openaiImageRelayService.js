@@ -1,4 +1,5 @@
 const axios = require('axios')
+const crypto = require('crypto')
 const fs = require('fs/promises')
 const formidable = require('formidable')
 const config = require('../../../config/config')
@@ -21,6 +22,9 @@ const DEFAULT_IMAGES_MAIN_MODEL = 'gpt-5.4-mini'
 const DEFAULT_IMAGES_TOOL_MODEL = 'gpt-image-2'
 const DEFAULT_RESPONSE_FORMAT = 'b64_json'
 const CODEX_IMAGES_ENDPOINT = 'https://chatgpt.com/backend-api/codex/responses'
+const CODEX_IMAGE_USER_AGENT =
+  'codex-tui/0.118.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.9 (codex-tui; 0.118.0)'
+const CODEX_IMAGE_ORIGINATOR = 'codex-tui'
 const MAX_IMAGE_FORM_BYTES = 100 * 1024 * 1024
 
 class ImageRequestError extends Error {
@@ -319,6 +323,40 @@ function extractImageResultsFromCompleted(eventData = {}) {
     createdAt: Number(response.created_at) || Math.floor(Date.now() / 1000),
     usage: response.tool_usage?.image_gen || response.usage || null,
     firstMeta: firstMeta || {}
+  }
+}
+
+function extractImageOutputItemDone(eventData = {}) {
+  if (eventData.type !== 'response.output_item.done') {
+    return null
+  }
+
+  const item = eventData.item
+  if (!item || item.type !== 'image_generation_call' || !toTrimmedString(item.result)) {
+    return null
+  }
+
+  return item
+}
+
+function completedWithFallbackOutputItems(completed, outputItems = []) {
+  if (!completed || outputItems.length === 0) {
+    return completed
+  }
+
+  const current = extractImageResultsFromCompleted(completed)
+  if (current.results.length > 0) {
+    return completed
+  }
+
+  const response = completed.response || {}
+  const existingOutput = Array.isArray(response.output) ? response.output : []
+  return {
+    ...completed,
+    response: {
+      ...response,
+      output: [...existingOutput, ...outputItems]
+    }
   }
 }
 
@@ -660,9 +698,16 @@ class OpenAIImageRelayService {
     const incoming = req.headers || {}
     const headers = {}
 
-    ;['version', 'openai-beta', 'session_id'].forEach((key) => {
-      if (incoming[key] !== undefined) {
-        headers[key] = incoming[key]
+    ;[
+      'version',
+      'openai-beta',
+      'x-codex-beta-features',
+      'x-codex-turn-metadata',
+      'x-client-request-id'
+    ].forEach((key) => {
+      const value = incoming[key] || incoming[key.toLowerCase()]
+      if (value !== undefined) {
+        headers[key] = value
       }
     })
 
@@ -672,6 +717,14 @@ class OpenAIImageRelayService {
     headers.host = 'chatgpt.com'
     headers.accept = isStream ? 'text/event-stream' : 'application/json'
     headers['content-type'] = 'application/json'
+    headers['user-agent'] = CODEX_IMAGE_USER_AGENT
+    headers.originator = incoming.originator || incoming.Originator || CODEX_IMAGE_ORIGINATOR
+    headers.connection = 'Keep-Alive'
+    headers.session_id = incoming.session_id || incoming.Session_id || crypto.randomUUID()
+
+    if (!headers['x-client-request-id']) {
+      headers['x-client-request-id'] = crypto.randomUUID()
+    }
 
     return headers
   }
@@ -847,13 +900,23 @@ class OpenAIImageRelayService {
   async _collectImagesFromResponses(req, res, context, upstream, requestPayload) {
     const parser = new IncrementalSSEParser()
     let completed = null
+    const outputItems = []
 
     for await (const chunk of upstream.data) {
       const events = parser.feed(chunk.toString())
       for (const event of events) {
-        if (event.type === 'data' && event.data?.type === 'response.completed') {
-          completed = event.data
-          break
+        if (event.type !== 'data' || !event.data) {
+          continue
+        }
+
+        const outputItem = extractImageOutputItemDone(event.data)
+        if (outputItem) {
+          outputItems.push(outputItem)
+          continue
+        }
+
+        if (event.data.type === 'response.completed') {
+          completed = completedWithFallbackOutputItems(event.data, outputItems)
         }
       }
       if (completed) {
@@ -863,13 +926,40 @@ class OpenAIImageRelayService {
 
     if (!completed) {
       const events = parser.feed('\n\n')
-      completed = events.find(
-        (event) => event.type === 'data' && event.data?.type === 'response.completed'
-      )?.data
+      for (const event of events) {
+        if (event.type !== 'data' || !event.data) {
+          continue
+        }
+
+        const outputItem = extractImageOutputItemDone(event.data)
+        if (outputItem) {
+          outputItems.push(outputItem)
+          continue
+        }
+
+        if (event.data.type === 'response.completed') {
+          completed = completedWithFallbackOutputItems(event.data, outputItems)
+          break
+        }
+      }
     }
 
     if (!completed) {
-      throw new ImageRequestError(502, 'Upstream disconnected before image completion', 'api_error')
+      if (outputItems.length === 0) {
+        throw new ImageRequestError(
+          502,
+          'Upstream disconnected before image completion',
+          'api_error'
+        )
+      }
+
+      completed = {
+        type: 'response.completed',
+        response: {
+          created_at: Math.floor(Date.now() / 1000),
+          output: outputItems
+        }
+      }
     }
 
     const imageData = extractImageResultsFromCompleted(completed)
@@ -902,6 +992,7 @@ class OpenAIImageRelayService {
         ? 'image_edit'
         : 'image_generation'
     let usageRecorded = false
+    const outputItems = []
 
     res.status(200)
     res.setHeader('Content-Type', 'text/event-stream')
@@ -919,6 +1010,12 @@ class OpenAIImageRelayService {
     }
 
     const processEvent = async (eventData) => {
+      const outputItem = extractImageOutputItemDone(eventData)
+      if (outputItem) {
+        outputItems.push(outputItem)
+        return false
+      }
+
       if (eventData.type === 'response.image_generation_call.partial_image') {
         const image = toTrimmedString(eventData.partial_image_b64)
         if (!image) {
@@ -943,7 +1040,8 @@ class OpenAIImageRelayService {
         return false
       }
 
-      const imageData = extractImageResultsFromCompleted(eventData)
+      const completed = completedWithFallbackOutputItems(eventData, outputItems)
+      const imageData = extractImageResultsFromCompleted(completed)
       if (imageData.results.length === 0) {
         writeEvent('error', {
           error: {
@@ -1005,6 +1103,21 @@ class OpenAIImageRelayService {
             res.end()
             return
           }
+        }
+      }
+
+      if (outputItems.length > 0) {
+        const completed = {
+          type: 'response.completed',
+          response: {
+            created_at: Math.floor(Date.now() / 1000),
+            output: outputItems
+          }
+        }
+        const done = await processEvent(completed)
+        if (done) {
+          res.end()
+          return
         }
       }
 
@@ -1089,8 +1202,12 @@ const service = new OpenAIImageRelayService()
 
 service.DEFAULT_IMAGES_MAIN_MODEL = DEFAULT_IMAGES_MAIN_MODEL
 service.DEFAULT_IMAGES_TOOL_MODEL = DEFAULT_IMAGES_TOOL_MODEL
+service.CODEX_IMAGE_USER_AGENT = CODEX_IMAGE_USER_AGENT
+service.CODEX_IMAGE_ORIGINATOR = CODEX_IMAGE_ORIGINATOR
 service.buildImagesResponsesRequest = buildImagesResponsesRequest
 service.extractImageResultsFromCompleted = extractImageResultsFromCompleted
+service.extractImageOutputItemDone = extractImageOutputItemDone
+service.completedWithFallbackOutputItems = completedWithFallbackOutputItems
 service.buildImagesAPIResponse = buildImagesAPIResponse
 
 module.exports = service

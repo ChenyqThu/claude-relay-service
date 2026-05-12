@@ -179,8 +179,7 @@ describe('openai image routes', () => {
       'gpt-5',
       {
         purpose: 'image-generation',
-        preferAccountTypes: ['openai-responses', 'openai'],
-        requireOpenAICodexImageGeneration: true
+        preferAccountTypes: ['openai', 'openai-responses']
       }
     )
     expect(openaiImageRelayService.handleGeneration).toHaveBeenCalledWith(
@@ -224,8 +223,7 @@ describe('openai image routes', () => {
       'gpt-5',
       {
         purpose: 'image-generation',
-        preferAccountTypes: ['openai-responses', 'openai'],
-        requireOpenAICodexImageGeneration: true
+        preferAccountTypes: ['openai', 'openai-responses']
       }
     )
     expect(openaiImageRelayService.passthroughOpenAIResponses).toHaveBeenCalledWith(

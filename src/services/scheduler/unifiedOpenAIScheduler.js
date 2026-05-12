@@ -3,46 +3,10 @@ const openaiResponsesAccountService = require('../account/openaiResponsesAccount
 const accountGroupService = require('../accountGroupService')
 const redis = require('../../models/redis')
 const logger = require('../../utils/logger')
-const { isSchedulable, isTruthy, sortAccountsByPriority } = require('../../utils/commonHelper')
+const { isSchedulable, sortAccountsByPriority } = require('../../utils/commonHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 
-const IMAGE_GENERATION_MODEL = 'gpt-image-2'
 const IMAGE_SELECTION_PURPOSE = 'image-generation'
-
-function normalizeSupportedModels(value) {
-  if (!value) {
-    return []
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item).trim().toLowerCase()).filter(Boolean)
-  }
-
-  if (typeof value === 'object') {
-    return Object.keys(value)
-      .map((item) => String(item).trim().toLowerCase())
-      .filter(Boolean)
-  }
-
-  return String(value)
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean)
-}
-
-function supportsCodexImageGeneration(account = {}) {
-  if (
-    isTruthy(account.codexImageGenerationEnabled) ||
-    isTruthy(account.enableCodexImageGeneration) ||
-    isTruthy(account.supportsCodexImages) ||
-    isTruthy(account.imageGenerationEnabled)
-  ) {
-    return true
-  }
-
-  const supportedModels = normalizeSupportedModels(account.supportedModels)
-  return supportedModels.includes(IMAGE_GENERATION_MODEL)
-}
 
 class UnifiedOpenAIScheduler {
   constructor() {
@@ -55,19 +19,13 @@ class UnifiedOpenAIScheduler {
       preferAccountTypes: Array.isArray(options.preferAccountTypes)
         ? options.preferAccountTypes
         : [],
-      requireOpenAICodexImageGeneration:
-        options.requireOpenAICodexImageGeneration === true ||
-        options.purpose === IMAGE_SELECTION_PURPOSE
+      requireOpenAICodexImageGeneration: options.requireOpenAICodexImageGeneration === true
     }
   }
 
   _isAccountCompatibleWithSelection(account, accountType, options = {}) {
     if (!account) {
       return false
-    }
-
-    if (options.requireOpenAICodexImageGeneration && accountType === 'openai') {
-      return supportsCodexImageGeneration(account)
     }
 
     return true
@@ -93,7 +51,7 @@ class UnifiedOpenAIScheduler {
   _createNoAvailableAccountsError(requestedModel, options = {}, scope = 'OpenAI') {
     if (options.purpose === IMAGE_SELECTION_PURPOSE) {
       const error = new Error(
-        `No available ${scope} image-capable accounts. Configure an OpenAI-Responses account that supports /v1/images, or enable codexImageGenerationEnabled on a verified Codex Direct OAuth account.`
+        `No available ${scope} accounts for Codex image generation. Add an active OpenAI OAuth account with Codex access.`
       )
       error.statusCode = 402
       return error
@@ -115,7 +73,7 @@ class UnifiedOpenAIScheduler {
   _createIncompatibleAccountError(account, accountType, options = {}) {
     if (options.purpose === IMAGE_SELECTION_PURPOSE && accountType === 'openai') {
       const error = new Error(
-        `OpenAI account ${account.name || account.id} is not enabled for Codex image generation. Configure an OpenAI-Responses image provider, or set codexImageGenerationEnabled=true after verifying this OAuth account supports image_generation.`
+        `OpenAI account ${account.name || account.id} is not compatible with this Codex image generation request.`
       )
       error.statusCode = 400
       return error

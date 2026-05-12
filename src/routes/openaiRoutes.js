@@ -26,8 +26,7 @@ const IMAGE_SCHEDULER_MODEL = 'gpt-5'
 const CODEX_IMAGE_GENERATION_TOOL = { type: 'image_generation', output_format: 'png' }
 const IMAGE_SELECTION_OPTIONS = Object.freeze({
   purpose: 'image-generation',
-  preferAccountTypes: ['openai-responses', 'openai'],
-  requireOpenAICodexImageGeneration: true
+  preferAccountTypes: ['openai', 'openai-responses']
 })
 
 // Codex CLI 系统提示词（非 Codex CLI 客户端请求时注入，统一端点也使用）
