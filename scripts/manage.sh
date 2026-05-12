@@ -1726,8 +1726,15 @@ load_config() {
 
     # 6) 加载 .env 配置（如存在）
     if [ -n "$APP_DIR" ] && [ -f "$APP_DIR/.env" ]; then
-        export $(cat "$APP_DIR/.env" | grep -v '^#' | xargs)
-        APP_PORT=$(grep "^PORT=" "$APP_DIR/.env" 2>/dev/null | cut -d'=' -f2)
+        while IFS= read -r env_line || [ -n "$env_line" ]; do
+            env_line="${env_line#"${env_line%%[![:space:]]*}"}"
+            [ -z "$env_line" ] && continue
+            [[ "$env_line" == \#* ]] && continue
+            [[ "$env_line" == export[[:space:]]* ]] && env_line="${env_line#export }"
+            export "$env_line"
+        done < "$APP_DIR/.env"
+
+        APP_PORT=$(awk '/^[[:space:]]*PORT=/{sub(/^[[:space:]]*PORT=/, "", $0); print; exit}' "$APP_DIR/.env" 2>/dev/null)
     fi
 }
 
