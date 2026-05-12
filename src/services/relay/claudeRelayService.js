@@ -18,6 +18,7 @@ const userMessageQueueService = require('../userMessageQueueService')
 const { isStreamWritable } = require('../../utils/streamHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const metadataUserIdHelper = require('../../utils/metadataUserIdHelper')
+const { stripLongContextSuffix } = require('../../utils/modelHelper')
 const {
   getHttpsAgentForStream,
   getHttpsAgentForNonStream,
@@ -38,6 +39,7 @@ class ClaudeRelayService {
     this.betaHeader = config.claude.betaHeader
     this.systemPrompt = config.claude.systemPrompt
     this.claudeCodeSystemPrompt = "You are Claude Code, Anthropic's official CLI for Claude."
+    this.defaultCacheControlTtl = '1h'
     this.toolNameSuffix = null
     this.toolNameSuffixGeneratedAt = 0
     this.toolNameSuffixTtlMs = 60 * 60 * 1000
@@ -1084,13 +1086,12 @@ class ClaudeRelayService {
     // 使用 safeClone 替代 JSON.parse(JSON.stringify()) 提升性能
     const processedBody = safeClone(body)
 
+    processedBody.model = stripLongContextSuffix(processedBody.model)
+
     processedBody.messages = this._patchOrphanedToolUse(processedBody.messages)
 
     // 验证并限制max_tokens参数
     this._validateAndLimitMaxTokens(processedBody)
-
-    // 移除cache_control中的ttl字段
-    this._stripTtlFromCacheControl(processedBody)
 
     // 判断是否是真实的 Claude Code 请求
     // 优先使用调用方传入的值（基于 UA + system prompt 综合判断），
@@ -1107,13 +1108,31 @@ class ClaudeRelayService {
     if (!isRealClaudeCode) {
       // 提取原始 system prompt 文本
       let originalSystemText = ''
+      let originalSystemContent = null
       if (typeof processedBody.system === 'string') {
         originalSystemText = processedBody.system
       } else if (Array.isArray(processedBody.system)) {
-        originalSystemText = processedBody.system
+        const textBlocks = processedBody.system
           .filter((item) => item && item.type === 'text' && item.text)
-          .map((item) => item.text)
-          .join('\n\n')
+          .map((item) => ({
+            type: 'text',
+            text: item.text,
+            ...(item.cache_control ? { cache_control: item.cache_control } : {})
+          }))
+
+        const hasCacheControl = textBlocks.some((item) => item.cache_control)
+        if (hasCacheControl) {
+          originalSystemContent = [
+            {
+              type: 'text',
+              text: '[System Instructions - follow these strictly]'
+            },
+            ...textBlocks
+          ]
+          originalSystemText = textBlocks.map((item) => item.text).join('\n\n')
+        } else {
+          originalSystemText = textBlocks.map((item) => item.text).join('\n\n')
+        }
       }
 
       // 将 system 替换为 Claude Code 标准提示词
@@ -1124,7 +1143,7 @@ class ClaudeRelayService {
       if (originalSystemText && originalSystemText.trim()) {
         const instructionMessage = {
           role: 'user',
-          content: [
+          content: originalSystemContent || [
             {
               type: 'text',
               text: `[System Instructions - follow these strictly]\n${originalSystemText.trim()}`
@@ -1162,6 +1181,8 @@ class ClaudeRelayService {
 
     // 移除 x-anthropic-billing-header 系统元素，避免将客户端 billing 标识传递给上游 API
     this._removeBillingHeaderFromSystem(processedBody)
+
+    this._applyDefaultCacheControlTtl(processedBody)
 
     this._enforceCacheControlLimit(processedBody)
 
@@ -1311,10 +1332,39 @@ class ClaudeRelayService {
     }
   }
 
-  // 🧹 移除TTL字段
-  _stripTtlFromCacheControl(body) {
+  // ⏱️ 默认将已有 Anthropic prompt cache 断点提升为 1h TTL
+  _applyDefaultCacheControlTtl(body) {
     if (!body || typeof body !== 'object') {
       return
+    }
+
+    let patchedCount = 0
+
+    const patchCacheControl = (item) => {
+      if (!item || typeof item !== 'object') {
+        return
+      }
+      const cacheControl = item.cache_control
+      if (!cacheControl || typeof cacheControl !== 'object') {
+        return
+      }
+      if (cacheControl.type !== 'ephemeral') {
+        return
+      }
+      if (cacheControl.ttl !== undefined && cacheControl.ttl !== null && cacheControl.ttl !== '') {
+        return
+      }
+
+      cacheControl.ttl = this.defaultCacheControlTtl
+      patchedCount += 1
+    }
+
+    if (body.cache_control && typeof body.cache_control === 'object') {
+      patchCacheControl({ cache_control: body.cache_control })
+    }
+
+    if (Array.isArray(body.tools)) {
+      body.tools.forEach(patchCacheControl)
     }
 
     const processContentArray = (contentArray) => {
@@ -1322,14 +1372,7 @@ class ClaudeRelayService {
         return
       }
 
-      contentArray.forEach((item) => {
-        if (item && typeof item === 'object' && item.cache_control) {
-          if (item.cache_control.ttl) {
-            delete item.cache_control.ttl
-            logger.debug('🧹 Removed ttl from cache_control')
-          }
-        }
-      })
+      contentArray.forEach(patchCacheControl)
     }
 
     if (Array.isArray(body.system)) {
@@ -1342,6 +1385,12 @@ class ClaudeRelayService {
           processContentArray(message.content)
         }
       })
+    }
+
+    if (patchedCount > 0) {
+      logger.debug(
+        `⏱️ Applied default ${this.defaultCacheControlTtl} TTL to ${patchedCount} cache_control block(s)`
+      )
     }
   }
 
@@ -1372,6 +1421,18 @@ class ClaudeRelayService {
       if (Array.isArray(body.system)) {
         body.system.forEach((item) => {
           if (item && item.cache_control) {
+            total += 1
+          }
+        })
+      }
+
+      if (body.cache_control) {
+        total += 1
+      }
+
+      if (Array.isArray(body.tools)) {
+        body.tools.forEach((tool) => {
+          if (tool && tool.cache_control) {
             total += 1
           }
         })
@@ -1423,16 +1484,51 @@ class ClaudeRelayService {
       return false
     }
 
+    const removeCacheControlFromTools = () => {
+      if (!Array.isArray(body.tools)) {
+        return false
+      }
+
+      for (let index = 0; index < body.tools.length; index += 1) {
+        const tool = body.tools[index]
+        if (tool && tool.cache_control) {
+          delete tool.cache_control
+          return true
+        }
+      }
+
+      return false
+    }
+
+    const removeTopLevelCacheControl = () => {
+      if (!body.cache_control) {
+        return false
+      }
+
+      delete body.cache_control
+      return true
+    }
+
     let total = countCacheControlBlocks()
 
     while (total > MAX_CACHE_CONTROL_BLOCKS) {
-      // 优先从 messages 中移除 cache_control，再从 system 中移除
+      // 优先从 messages 中移除 cache_control，再从 system/tools/top-level 中移除
       if (removeCacheControlFromMessages()) {
         total -= 1
         continue
       }
 
       if (removeCacheControlFromSystem()) {
+        total -= 1
+        continue
+      }
+
+      if (removeCacheControlFromTools()) {
+        total -= 1
+        continue
+      }
+
+      if (removeTopLevelCacheControl()) {
         total -= 1
         continue
       }
