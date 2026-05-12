@@ -354,6 +354,9 @@ describe('openai responses payload toggles', () => {
       service_tier: 'priority',
       store: false
     })
+    expect(axios.post.mock.calls[0][1].tools).toEqual([
+      { type: 'image_generation', output_format: 'png' }
+    ])
   })
 
   test('normalizes payload-rule gpt-5 aliases for openai scheduling without applying full Codex adaptation', async () => {
@@ -411,6 +414,55 @@ describe('openai responses payload toggles', () => {
       text: { format: {} },
       store: false
     })
+    expect(axios.post.mock.calls[0][1].tools).toEqual([
+      { type: 'image_generation', output_format: 'png' }
+    ])
+  })
+
+  test('does not inject the Codex image_generation tool for spark models', async () => {
+    unifiedOpenAIScheduler.selectAccountForApiKey.mockResolvedValue({
+      accountId: 'openai-1',
+      accountType: 'openai'
+    })
+    openaiAccountService.getAccount.mockResolvedValue({
+      id: 'openai-1',
+      name: 'OpenAI Account',
+      accessToken: 'encrypted-token',
+      accountId: 'chatgpt-account-1'
+    })
+    axios.post.mockResolvedValue({
+      status: 200,
+      data: {
+        model: 'gpt-5.3-codex-spark',
+        usage: {
+          input_tokens: 8,
+          output_tokens: 3,
+          total_tokens: 11
+        }
+      },
+      headers: {}
+    })
+
+    const req = createReq({
+      body: {
+        model: 'gpt-5.3-codex-spark',
+        prompt_cache_key: 'spark-key',
+        stream: false
+      },
+      apiKeyOverrides: {
+        enableOpenAIResponsesCodexAdaptation: false,
+        enableOpenAIResponsesPayloadRules: false
+      }
+    })
+
+    await openaiRoutes.handleResponses(req, createRes())
+
+    expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
+      req.apiKey,
+      createHash('spark-key'),
+      'gpt-5.3-codex-spark'
+    )
+    expect(axios.post.mock.calls[0][1].tools).toBeUndefined()
   })
 
   test('records the mutated service_tier for standard responses sent through openai accounts', async () => {
