@@ -474,7 +474,7 @@
                     >
                       <td class="order-column sticky left-0 z-10 px-2 py-3 text-center">
                         <button
-                          class="inline-flex h-7 w-7 cursor-grab items-center justify-center rounded-md border border-gray-200 bg-white text-gray-400 opacity-0 transition-all duration-150 hover:border-blue-300 hover:text-blue-500 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 active:cursor-grabbing group-hover:opacity-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-600 dark:hover:text-blue-300"
+                          class="inline-flex h-7 w-7 cursor-grab items-center justify-center rounded-md text-gray-400 opacity-0 transition-all duration-150 hover:bg-blue-50 hover:text-blue-500 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 active:cursor-grabbing group-hover:opacity-100 dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-300"
                           draggable="true"
                           title="拖拽调整顺序"
                           type="button"

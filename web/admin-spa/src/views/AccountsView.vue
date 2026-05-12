@@ -163,6 +163,19 @@
               </el-tooltip>
             </div>
 
+            <button
+              v-if="hasAccountCustomOrder"
+              class="group relative flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 sm:w-auto"
+              title="清除当前浏览器保存的账户顺序"
+              @click="resetAccountCustomOrder"
+            >
+              <div
+                class="absolute -inset-0.5 rounded-lg bg-gradient-to-r from-gray-500 to-slate-500 opacity-0 blur transition duration-300 group-hover:opacity-20"
+              ></div>
+              <i class="fas fa-rotate-left relative text-gray-500" />
+              <span class="relative">恢复默认</span>
+            </button>
+
             <!-- 选择/取消选择按钮 -->
             <button
               class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 hover:shadow-md dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
@@ -237,8 +250,14 @@
             >
               <tr>
                 <th
+                  class="order-column sticky left-0 z-20 w-[44px] min-w-[44px] px-2 py-4 text-center text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
+                  title="拖拽行首按钮调整顺序"
+                >
+                  <span class="sr-only">排序</span>
+                </th>
+                <th
                   v-if="shouldShowCheckboxes"
-                  class="checkbox-column sticky left-0 z-20 min-w-[50px] px-3 py-4 text-left"
+                  class="checkbox-column sticky left-[44px] z-20 min-w-[50px] px-3 py-4 text-left"
                 >
                   <div class="flex items-center">
                     <input
@@ -252,7 +271,7 @@
                 </th>
                 <th
                   class="name-column sticky z-20 min-w-[180px] cursor-pointer px-3 py-4 text-left text-xs font-bold uppercase tracking-wider text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-600"
-                  :class="shouldShowCheckboxes ? 'left-[50px]' : 'left-0'"
+                  :class="shouldShowCheckboxes ? 'left-[94px]' : 'left-[44px]'"
                   @click="sortAccounts('name')"
                 >
                   名称
@@ -475,10 +494,37 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-200/50 dark:divide-gray-600/50">
-              <tr v-for="account in paginatedAccounts" :key="account.id" class="table-row">
+              <tr
+                v-for="account in paginatedAccounts"
+                :key="getAccountOrderId(account)"
+                :class="[
+                  'table-row',
+                  'group',
+                  draggedAccountOrderId === getAccountOrderId(account) ? 'opacity-50' : '',
+                  dragOverAccountOrderId === getAccountOrderId(account) &&
+                  draggedAccountOrderId !== getAccountOrderId(account)
+                    ? 'account-drag-over'
+                    : ''
+                ]"
+                @dragover.prevent="handleAccountDragOver(getAccountOrderId(account))"
+                @drop.prevent="handleAccountDrop(getAccountOrderId(account))"
+              >
+                <td class="order-column sticky left-0 z-10 px-2 py-3 text-center">
+                  <button
+                    class="inline-flex h-7 w-7 cursor-grab items-center justify-center rounded-md text-gray-400 opacity-0 transition-all duration-150 hover:bg-blue-50 hover:text-blue-500 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 active:cursor-grabbing group-hover:opacity-100 dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-300"
+                    draggable="true"
+                    title="拖拽调整顺序"
+                    type="button"
+                    @click.stop
+                    @dragend="handleAccountDragEnd"
+                    @dragstart.stop="handleAccountDragStart($event, account)"
+                  >
+                    <i class="fas fa-grip-vertical text-xs" />
+                  </button>
+                </td>
                 <td
                   v-if="shouldShowCheckboxes"
-                  class="checkbox-column sticky left-0 z-10 px-3 py-3"
+                  class="checkbox-column sticky left-[44px] z-10 px-3 py-3"
                 >
                   <div class="flex items-center">
                     <input
@@ -492,7 +538,7 @@
                 </td>
                 <td
                   class="name-column sticky z-10 px-3 py-4"
-                  :class="shouldShowCheckboxes ? 'left-[50px]' : 'left-0'"
+                  :class="shouldShowCheckboxes ? 'left-[94px]' : 'left-[44px]'"
                 >
                   <div class="flex items-center">
                     <div
@@ -1433,7 +1479,7 @@
       <div v-if="!accountsLoading && sortedAccounts.length > 0" class="space-y-3 md:hidden">
         <div
           v-for="account in paginatedAccounts"
-          :key="account.id"
+          :key="getAccountOrderId(account)"
           class="card p-4 transition-shadow hover:shadow-lg"
         >
           <!-- 卡片头部 -->
@@ -1501,17 +1547,39 @@
                 </div>
               </div>
             </div>
-            <span
-              :class="[
-                'inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold',
-                getAccountStatusClass(account)
-              ]"
-            >
-              <div
-                :class="['mr-1.5 h-1.5 w-1.5 rounded-full', getAccountStatusDotClass(account)]"
-              />
-              {{ getAccountStatusText(account) }}
-            </span>
+            <div class="flex items-center gap-2">
+              <div class="flex items-center gap-1">
+                <button
+                  class="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-600 dark:hover:text-blue-300"
+                  :disabled="isAccountMoveDisabled(account, -1)"
+                  title="上移"
+                  type="button"
+                  @click="moveAccountInCustomOrder(account, -1)"
+                >
+                  <i class="fas fa-chevron-up text-xs" />
+                </button>
+                <button
+                  class="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-600 dark:hover:text-blue-300"
+                  :disabled="isAccountMoveDisabled(account, 1)"
+                  title="下移"
+                  type="button"
+                  @click="moveAccountInCustomOrder(account, 1)"
+                >
+                  <i class="fas fa-chevron-down text-xs" />
+                </button>
+              </div>
+              <span
+                :class="[
+                  'inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold',
+                  getAccountStatusClass(account)
+                ]"
+              >
+                <div
+                  :class="['mr-1.5 h-1.5 w-1.5 rounded-full', getAccountStatusDotClass(account)]"
+                />
+                {{ getAccountStatusText(account) }}
+              </span>
+            </div>
           </div>
 
           <!-- 使用统计 -->
@@ -2302,8 +2370,6 @@ const accounts = ref([])
 const accountsLoading = ref(false)
 const refreshingBalances = ref(false)
 const tempUnavailableNowTs = ref(Date.now())
-const accountsSortBy = ref('name')
-const accountsSortOrder = ref('asc')
 const apiKeys = ref([]) // 保留用于其他功能（如删除账户时显示绑定信息）
 const bindingCounts = ref({}) // 轻量级绑定计数，用于显示"绑定: X 个API Key"
 const accountGroups = ref([])
@@ -2311,7 +2377,45 @@ const groupFilter = ref('all')
 const platformFilter = ref('all')
 const statusFilter = ref('all') // 状态过滤 (normal/rateLimited/other/all)
 const searchKeyword = ref('')
+const ACCOUNT_CUSTOM_ORDER_STORAGE_KEY = 'crs:admin:accounts:customOrder:v1'
+const ACCOUNT_CUSTOM_SORT_BY = 'custom'
 const PAGE_SIZE_STORAGE_KEY = 'accountsPageSize'
+
+const normalizeAccountOrder = (order) => {
+  if (!Array.isArray(order)) return []
+
+  const seenIds = new Set()
+  return order
+    .map((id) => String(id || '').trim())
+    .filter((id) => {
+      if (!id || seenIds.has(id)) return false
+      seenIds.add(id)
+      return true
+    })
+}
+
+const getAccountOrderId = (account) => {
+  const id = String(account?.id || '').trim()
+  if (!id) return ''
+
+  const platform = String(account?.platform || '').trim()
+  return platform ? `${platform}:${id}` : id
+}
+
+const readAccountCustomOrder = () => {
+  try {
+    return normalizeAccountOrder(JSON.parse(localStorage.getItem(ACCOUNT_CUSTOM_ORDER_STORAGE_KEY)))
+  } catch {
+    return []
+  }
+}
+
+const initialAccountCustomOrder = readAccountCustomOrder()
+const accountCustomOrder = ref(initialAccountCustomOrder)
+const accountsSortBy = ref(initialAccountCustomOrder.length > 0 ? ACCOUNT_CUSTOM_SORT_BY : 'name')
+const accountsSortOrder = ref('asc')
+const draggedAccountOrderId = ref('')
+const dragOverAccountOrderId = ref('')
 const getInitialPageSize = () => {
   const saved = localStorage.getItem(PAGE_SIZE_STORAGE_KEY)
   if (saved) {
@@ -2430,16 +2534,27 @@ const bindingCountsLoaded = ref(false) // 轻量级绑定计数缓存
 const groupsLoaded = ref(false)
 const groupMembersLoaded = ref(false)
 const accountGroupMap = ref(new Map()) // Map<accountId, Array<groupInfo>>
+const hasAccountCustomOrder = computed(() => accountCustomOrder.value.length > 0)
+const isCustomSortActive = computed(() => accountsSortBy.value === ACCOUNT_CUSTOM_SORT_BY)
 
 // 下拉选项数据
-const sortOptions = ref([
-  { value: 'name', label: '按名称排序', icon: 'fa-font' },
-  { value: 'dailyTokens', label: '按今日Token排序', icon: 'fa-coins' },
-  { value: 'dailyRequests', label: '按今日请求数排序', icon: 'fa-chart-line' },
-  { value: 'totalTokens', label: '按总Token排序', icon: 'fa-database' },
-  { value: 'lastUsed', label: '按最后使用排序', icon: 'fa-clock' },
-  { value: 'rateLimitTime', label: '按限流时间排序', icon: 'fa-hourglass' }
-])
+const sortOptions = computed(() => {
+  const options = []
+
+  if (hasAccountCustomOrder.value || isCustomSortActive.value) {
+    options.push({ value: ACCOUNT_CUSTOM_SORT_BY, label: '自定义排序', icon: 'fa-grip-vertical' })
+  }
+
+  return [
+    ...options,
+    { value: 'name', label: '按名称排序', icon: 'fa-font' },
+    { value: 'dailyTokens', label: '按今日Token排序', icon: 'fa-coins' },
+    { value: 'dailyRequests', label: '按今日请求数排序', icon: 'fa-chart-line' },
+    { value: 'totalTokens', label: '按总Token排序', icon: 'fa-database' },
+    { value: 'lastUsed', label: '按最后使用排序', icon: 'fa-clock' },
+    { value: 'rateLimitTime', label: '按限流时间排序', icon: 'fa-hourglass' }
+  ]
+})
 
 // 平台层级结构定义
 const platformHierarchy = [
@@ -2830,6 +2945,194 @@ const handleBalanceScriptSaved = async () => {
   }
 }
 
+const saveAccountCustomOrder = (order) => {
+  const normalizedOrder = normalizeAccountOrder(order)
+  accountCustomOrder.value = normalizedOrder
+
+  try {
+    if (normalizedOrder.length > 0) {
+      localStorage.setItem(ACCOUNT_CUSTOM_ORDER_STORAGE_KEY, JSON.stringify(normalizedOrder))
+    } else {
+      localStorage.removeItem(ACCOUNT_CUSTOM_ORDER_STORAGE_KEY)
+    }
+  } catch {
+    showToast('排序保存失败，请检查浏览器本地存储权限', 'error')
+  }
+}
+
+const hasActiveAccountListFilter = () => {
+  return Boolean(
+    searchKeyword.value ||
+      platformFilter.value !== 'all' ||
+      groupFilter.value !== 'all' ||
+      statusFilter.value !== 'all'
+  )
+}
+
+const syncAccountCustomOrder = (nextAccounts) => {
+  if (accountCustomOrder.value.length === 0) return
+
+  const accountIds = normalizeAccountOrder(
+    nextAccounts.map((account) => getAccountOrderId(account))
+  )
+  const visibleIds = new Set(accountIds)
+  const knownIds = new Set()
+  const nextOrder = []
+
+  accountCustomOrder.value.forEach((id) => {
+    if (!hasActiveAccountListFilter() && !visibleIds.has(id)) return
+    if (knownIds.has(id)) return
+    knownIds.add(id)
+    nextOrder.push(id)
+  })
+
+  accountIds.forEach((id) => {
+    if (!knownIds.has(id)) {
+      knownIds.add(id)
+      nextOrder.push(id)
+    }
+  })
+
+  if (nextOrder.join('|') !== accountCustomOrder.value.join('|')) {
+    saveAccountCustomOrder(nextOrder)
+  }
+}
+
+const getCustomSortedAccounts = (sourceAccounts) => {
+  if (!isCustomSortActive.value || accountCustomOrder.value.length === 0) {
+    return sourceAccounts
+  }
+
+  const orderIndex = new Map(accountCustomOrder.value.map((id, index) => [id, index]))
+
+  return sourceAccounts
+    .map((account, index) => ({ account, index }))
+    .sort((a, b) => {
+      const aOrderId = getAccountOrderId(a.account)
+      const bOrderId = getAccountOrderId(b.account)
+      const aIndex = orderIndex.has(aOrderId) ? orderIndex.get(aOrderId) : Number.MAX_SAFE_INTEGER
+      const bIndex = orderIndex.has(bOrderId) ? orderIndex.get(bOrderId) : Number.MAX_SAFE_INTEGER
+
+      if (aIndex !== bIndex) return aIndex - bIndex
+      return a.index - b.index
+    })
+    .map(({ account }) => account)
+}
+
+const commitVisibleAccountOrder = (orderedAccounts) => {
+  const visibleIds = normalizeAccountOrder(
+    orderedAccounts.map((account) => getAccountOrderId(account))
+  )
+  const visibleIdSet = new Set(visibleIds)
+  const baseOrder =
+    accountCustomOrder.value.length > 0
+      ? accountCustomOrder.value
+      : normalizeAccountOrder(sortedAccounts.value.map((account) => getAccountOrderId(account)))
+  const nextOrder = []
+  let visibleIndex = 0
+
+  baseOrder.forEach((id) => {
+    if (visibleIdSet.has(id)) {
+      if (visibleIndex < visibleIds.length) {
+        nextOrder.push(visibleIds[visibleIndex])
+        visibleIndex += 1
+      }
+      return
+    }
+
+    nextOrder.push(id)
+  })
+
+  while (visibleIndex < visibleIds.length) {
+    nextOrder.push(visibleIds[visibleIndex])
+    visibleIndex += 1
+  }
+
+  saveAccountCustomOrder(nextOrder)
+  accountsSortBy.value = ACCOUNT_CUSTOM_SORT_BY
+  accountsSortOrder.value = 'asc'
+  lastDropdownSortField = ACCOUNT_CUSTOM_SORT_BY
+}
+
+const resetAccountCustomOrder = () => {
+  saveAccountCustomOrder([])
+  accountsSortBy.value = 'name'
+  accountsSortOrder.value = 'asc'
+  draggedAccountOrderId.value = ''
+  dragOverAccountOrderId.value = ''
+  lastDropdownSortField = 'name'
+  showToast('已恢复默认排序', 'success')
+}
+
+const moveAccountInCustomOrder = (account, direction) => {
+  const accountOrderId = getAccountOrderId(account)
+  const visibleAccounts = [...paginatedAccounts.value]
+  const fromIndex = visibleAccounts.findIndex(
+    (visibleAccount) => getAccountOrderId(visibleAccount) === accountOrderId
+  )
+  const toIndex = fromIndex + direction
+
+  if (fromIndex < 0 || toIndex < 0 || toIndex >= visibleAccounts.length) return
+
+  const [movedAccount] = visibleAccounts.splice(fromIndex, 1)
+  visibleAccounts.splice(toIndex, 0, movedAccount)
+  commitVisibleAccountOrder(visibleAccounts)
+}
+
+const isAccountMoveDisabled = (account, direction) => {
+  const accountOrderId = getAccountOrderId(account)
+  const index = paginatedAccounts.value.findIndex(
+    (visibleAccount) => getAccountOrderId(visibleAccount) === accountOrderId
+  )
+  if (index < 0) return true
+  return direction < 0 ? index === 0 : index === paginatedAccounts.value.length - 1
+}
+
+const handleAccountDragStart = (event, account) => {
+  const accountOrderId = getAccountOrderId(account)
+  draggedAccountOrderId.value = accountOrderId
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', accountOrderId)
+  }
+}
+
+const handleAccountDragOver = (accountOrderId) => {
+  if (!draggedAccountOrderId.value || draggedAccountOrderId.value === accountOrderId) {
+    return
+  }
+
+  dragOverAccountOrderId.value = accountOrderId
+}
+
+const handleAccountDrop = (targetAccountOrderId) => {
+  if (!draggedAccountOrderId.value || draggedAccountOrderId.value === targetAccountOrderId) {
+    handleAccountDragEnd()
+    return
+  }
+
+  const visibleAccounts = [...paginatedAccounts.value]
+  const fromIndex = visibleAccounts.findIndex(
+    (account) => getAccountOrderId(account) === draggedAccountOrderId.value
+  )
+  const toIndex = visibleAccounts.findIndex(
+    (account) => getAccountOrderId(account) === targetAccountOrderId
+  )
+
+  if (fromIndex >= 0 && toIndex >= 0) {
+    const [movedAccount] = visibleAccounts.splice(fromIndex, 1)
+    visibleAccounts.splice(toIndex, 0, movedAccount)
+    commitVisibleAccountOrder(visibleAccounts)
+  }
+
+  handleAccountDragEnd()
+}
+
+const handleAccountDragEnd = () => {
+  draggedAccountOrderId.value = ''
+  dragOverAccountOrderId.value = ''
+}
+
 // 计算排序后的账户列表
 const sortedAccounts = computed(() => {
   let sourceAccounts = accounts.value
@@ -2867,6 +3170,10 @@ const sortedAccounts = computed(() => {
       }
       return true
     })
+  }
+
+  if (accountsSortBy.value === ACCOUNT_CUSTOM_SORT_BY) {
+    return getCustomSortedAccounts(sourceAccounts)
   }
 
   if (!accountsSortBy.value) return sourceAccounts
@@ -3494,6 +3801,7 @@ const loadAccounts = async (forceReload = false) => {
     }
 
     accounts.value = filteredAccounts
+    syncAccountCustomOrder(filteredAccounts)
     cleanupSelectedAccounts()
 
     // 异步加载 Claude OAuth 账户的 usage 数据
@@ -3529,7 +3837,7 @@ const loadClaudeUsage = async () => {
 }
 
 // 记录上一次的排序字段，用于判断下拉选择是否是同一字段被再次选择
-let lastDropdownSortField = 'name'
+let lastDropdownSortField = accountsSortBy.value
 
 // 排序账户（表头点击使用）
 const sortAccounts = (field) => {
@@ -3547,6 +3855,12 @@ const sortAccounts = (field) => {
 
 // 下拉选择器排序处理（支持再次选择同一选项时切换排序方向）
 const handleDropdownSort = (field) => {
+  if (field === ACCOUNT_CUSTOM_SORT_BY) {
+    accountsSortOrder.value = 'asc'
+    lastDropdownSortField = field
+    return
+  }
+
   if (field === lastDropdownSortField) {
     // 选择同一字段，切换排序方向
     accountsSortOrder.value = accountsSortOrder.value === 'asc' ? 'desc' : 'asc'
@@ -5383,13 +5697,31 @@ onUnmounted(() => {
   background-color: var(--bg-gradient-mid);
 }
 
+.account-drag-over > td {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+}
+
+.dark .account-drag-over > td {
+  background-color: rgba(59, 130, 246, 0.22) !important;
+}
+
+/* 固定左侧列（排序、复选框和名称列）*/
+.order-column,
+.checkbox-column,
+.name-column {
+  position: sticky;
+  z-index: 12;
+}
+
 /* 表头左侧固定列背景 - 使用纯色避免滚动时重叠 */
+.table-container thead .order-column,
 .table-container thead .checkbox-column,
 .table-container thead .name-column {
   z-index: 30;
   background: linear-gradient(to bottom, #f9fafb, #f3f4f6);
 }
 
+.dark .table-container thead .order-column,
 .dark .table-container thead .checkbox-column,
 .dark .table-container thead .name-column {
   background: linear-gradient(to bottom, var(--bg-gradient-mid), var(--bg-gradient-start));
