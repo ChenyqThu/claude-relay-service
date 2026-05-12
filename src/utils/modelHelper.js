@@ -66,7 +66,14 @@ function hasVendorPrefix(modelStr) {
  */
 function getEffectiveModel(modelStr) {
   const { baseModel } = parseVendorPrefixedModel(modelStr)
-  return baseModel
+  return stripLongContextSuffix(baseModel)
+}
+
+function stripLongContextSuffix(modelName) {
+  if (typeof modelName !== 'string') {
+    return modelName
+  }
+  return modelName.replace(/\[1m\]$/i, '').trim()
 }
 
 /**
@@ -204,7 +211,7 @@ function isClaudeFamilyModel(modelName) {
   }
 
   const { baseModel } = parseVendorPrefixedModel(modelName)
-  const m = (baseModel || '').trim().toLowerCase()
+  const m = (stripLongContextSuffix(baseModel) || '').trim().toLowerCase()
   if (!m) {
     return false
   }
@@ -235,6 +242,7 @@ module.exports = {
   parseVendorPrefixedModel,
   hasVendorPrefix,
   getEffectiveModel,
+  stripLongContextSuffix,
   getVendorType,
   isOpus45OrNewer,
   isClaudeFamilyModel

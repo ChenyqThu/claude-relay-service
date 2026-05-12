@@ -4,8 +4,11 @@
  */
 
 const CLAUDE_MODELS = [
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+  { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { value: 'claude-opus-4-7[1m]', label: 'Claude Opus 4.7 (1M)' },
+  { value: 'claude-sonnet-4-6[1m]', label: 'Claude Sonnet 4.6 (1M)' },
+  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
   { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
   { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
   { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
@@ -37,6 +40,9 @@ const OPENAI_MODELS = [
   { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
   { value: 'gpt-5.4', label: 'GPT-5.4' },
   { value: 'gpt-5.4-pro', label: 'GPT-5.4 Pro' },
+  { value: 'gpt-5.5', label: 'GPT-5.5' },
+  { value: 'gpt-image-2', label: 'GPT Image 2' },
+  { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2 (2026-04-21)' },
   { value: 'codex-mini', label: 'Codex Mini' }
 ]
 

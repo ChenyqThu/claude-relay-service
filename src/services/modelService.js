@@ -1,4 +1,7 @@
 const logger = require('../utils/logger')
+const modelsConfig = require('../../config/models')
+const modelPricing = require('../../data/model_pricing.json')
+const { stripLongContextSuffix } = require('../utils/modelHelper')
 
 /**
  * 模型服务
@@ -29,45 +32,17 @@ class ModelService {
       claude: {
         provider: 'anthropic',
         description: 'Claude models from Anthropic',
-        models: [
-          'claude-opus-4-5-20251101',
-          'claude-haiku-4-5-20251001',
-          'claude-sonnet-4-5-20250929',
-          'claude-opus-4-1-20250805',
-          'claude-sonnet-4-20250514',
-          'claude-opus-4-20250514',
-          'claude-3-7-sonnet-20250219',
-          'claude-3-5-sonnet-20241022',
-          'claude-3-5-haiku-20241022',
-          'claude-3-opus-20240229',
-          'claude-3-haiku-20240307'
-        ]
+        models: modelsConfig.CLAUDE_MODELS.map((model) => model.value)
       },
       openai: {
         provider: 'openai',
         description: 'OpenAI GPT models',
-        models: [
-          'gpt-5.1-2025-11-13',
-          'gpt-5.1-codex-mini',
-          'gpt-5.1-codex',
-          'gpt-5.1-codex-max',
-          'gpt-5-2025-08-07',
-          'gpt-5-codex',
-          'gpt-5.3-codex',
-          'gpt-5.3-codex-spark',
-          'gpt-5.4',
-          'gpt-5.4-pro'
-        ]
+        models: modelsConfig.OPENAI_MODELS.map((model) => model.value)
       },
       gemini: {
         provider: 'google',
         description: 'Google Gemini models',
-        models: [
-          'gemini-2.5-pro',
-          'gemini-3-pro-preview',
-          'gemini-3.1-pro-preview',
-          'gemini-2.5-flash'
-        ]
+        models: modelsConfig.GEMINI_MODELS.map((model) => model.value)
       }
     }
   }
@@ -81,12 +56,22 @@ class ModelService {
 
     for (const [_service, config] of Object.entries(this.supportedModels)) {
       for (const modelId of config.models) {
-        models.push({
+        const pricing = modelPricing[stripLongContextSuffix(modelId)]
+        const model = {
           id: modelId,
           object: 'model',
           created: now,
           owned_by: config.provider
-        })
+        }
+
+        if (pricing?.max_input_tokens) {
+          model.max_input_tokens = pricing.max_input_tokens
+        }
+        if (pricing?.max_tokens) {
+          model.max_tokens = pricing.max_tokens
+        }
+
+        models.push(model)
       }
     }
 
