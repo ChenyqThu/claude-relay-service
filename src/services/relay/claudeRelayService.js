@@ -18,7 +18,7 @@ const userMessageQueueService = require('../userMessageQueueService')
 const { isStreamWritable } = require('../../utils/streamHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const metadataUserIdHelper = require('../../utils/metadataUserIdHelper')
-const { stripLongContextSuffix } = require('../../utils/modelHelper')
+const { stripLongContextSuffix, getClaudeModelFamily } = require('../../utils/modelHelper')
 const {
   getHttpsAgentForStream,
   getHttpsAgentForNonStream,
@@ -94,6 +94,73 @@ class ClaudeRelayService {
     }
     const formattedReset = formatDateWithTimezone(resetTime)
     return `此专属账号的Opus模型已达到周使用限制，将于 ${formattedReset} 自动恢复，请尝试切换其他模型后再试。`
+  }
+
+  _buildModelLimitMessage(modelFamily, resetTime) {
+    if (modelFamily === 'opus') {
+      return this._buildOpusLimitMessage(resetTime)
+    }
+
+    const modelLabel = {
+      sonnet: 'Sonnet',
+      haiku: 'Haiku'
+    }[modelFamily]
+
+    if (!modelLabel) {
+      return this._buildStandardRateLimitMessage(resetTime)
+    }
+
+    if (!resetTime) {
+      return `此专属账号的${modelLabel}模型已达到使用限制，请尝试切换其他模型后再试。`
+    }
+    const formattedReset = formatDateWithTimezone(resetTime)
+    return `此专属账号的${modelLabel}模型已达到使用限制，将于 ${formattedReset} 自动恢复，请尝试切换其他模型后再试。`
+  }
+
+  _getModelRateLimitErrorCode(modelFamily) {
+    if (modelFamily === 'opus') {
+      return 'opus_weekly_limit'
+    }
+    return `${modelFamily || 'claude'}_model_limit`
+  }
+
+  _getRateLimitResetTimestamp(headers) {
+    const resetHeader = this._getHeaderValueCaseInsensitive(
+      headers,
+      'anthropic-ratelimit-unified-reset'
+    )
+    const resetValue = Array.isArray(resetHeader) ? resetHeader[0] : resetHeader
+    const parsedResetTimestamp = resetValue ? parseInt(resetValue, 10) : NaN
+    return Number.isNaN(parsedResetTimestamp) ? null : parsedResetTimestamp
+  }
+
+  _getUnifiedFiveHourStatus(headers) {
+    const fiveHourStatus = this._getHeaderValueCaseInsensitive(
+      headers,
+      'anthropic-ratelimit-unified-5h-status'
+    )
+    return typeof fiveHourStatus === 'string' ? fiveHourStatus.toLowerCase() : null
+  }
+
+  _shouldUseModelLevelRateLimit(modelFamily, headers, resetTimestamp) {
+    if (!modelFamily || !Number.isFinite(resetTimestamp)) {
+      return false
+    }
+
+    const fiveHourStatus = this._getUnifiedFiveHourStatus(headers)
+    return fiveHourStatus !== 'rejected'
+  }
+
+  async _markModelRateLimited(accountId, sessionHash, modelFamily, resetTimestamp, context) {
+    await claudeAccountService.markAccountModelRateLimited(accountId, modelFamily, resetTimestamp)
+
+    if (sessionHash) {
+      await unifiedClaudeScheduler.clearSessionMapping(sessionHash).catch(() => {})
+    }
+
+    logger.warn(
+      `🚫 ${context} Account ${accountId} hit ${modelFamily} model limit, resets at ${new Date(resetTimestamp * 1000).toISOString()}`
+    )
   }
 
   // 🧾 提取错误消息文本
@@ -426,8 +493,7 @@ class ClaudeRelayService {
         requestedModel: requestBody.model
       })
 
-      const isOpusModelRequest =
-        typeof requestBody?.model === 'string' && requestBody.model.toLowerCase().includes('opus')
+      const requestModelFamily = getClaudeModelFamily(requestBody?.model)
 
       // 生成会话哈希用于sticky会话
       const sessionHash = sessionHelper.generateSessionHash(requestBody)
@@ -451,6 +517,21 @@ class ClaudeRelayService {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               error: 'upstream_rate_limited',
+              message: limitMessage
+            }),
+            accountId: error.accountId
+          }
+        }
+        if (error.code === 'CLAUDE_DEDICATED_MODEL_RATE_LIMITED') {
+          const limitMessage = this._buildModelLimitMessage(error.modelFamily, error.rateLimitEndAt)
+          logger.warn(
+            `🚫 Dedicated account ${error.accountId} is ${error.modelFamily} rate limited for API key ${apiKeyData.name}, returning 403`
+          )
+          return {
+            statusCode: 403,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              error: this._getModelRateLimitErrorCode(error.modelFamily),
               message: limitMessage
             }),
             accountId: error.accountId
@@ -537,8 +618,13 @@ class ClaudeRelayService {
       // 获取账户信息
       let account = await claudeAccountService.getAccount(accountId)
 
-      if (isOpusModelRequest) {
-        await claudeAccountService.clearExpiredOpusRateLimit(accountId)
+      let modelRateLimitInfo = null
+      if (accountType === 'claude-official' && requestModelFamily) {
+        await claudeAccountService.clearExpiredModelRateLimit(accountId, requestModelFamily)
+        modelRateLimitInfo = await claudeAccountService.getAccountModelRateLimitInfo(
+          accountId,
+          requestModelFamily
+        )
         account = await claudeAccountService.getAccount(accountId)
       }
 
@@ -548,23 +634,19 @@ class ClaudeRelayService {
         !apiKeyData.claudeAccountId.startsWith('group:') &&
         apiKeyData.claudeAccountId === accountId
 
-      let opusRateLimitActive = false
-      let opusRateLimitEndAt = null
-      if (isOpusModelRequest) {
-        opusRateLimitActive = await claudeAccountService.isAccountOpusRateLimited(accountId)
-        opusRateLimitEndAt = account?.opusRateLimitEndAt || null
-      }
-
-      if (isOpusModelRequest && isDedicatedOfficialAccount && opusRateLimitActive) {
-        const limitMessage = this._buildOpusLimitMessage(opusRateLimitEndAt)
+      if (isDedicatedOfficialAccount && modelRateLimitInfo?.isRateLimited) {
+        const limitMessage = this._buildModelLimitMessage(
+          requestModelFamily,
+          modelRateLimitInfo.resetAt
+        )
         logger.warn(
-          `🚫 Dedicated account ${account?.name || accountId} is under Opus weekly limit until ${opusRateLimitEndAt}`
+          `🚫 Dedicated account ${account?.name || accountId} is under ${requestModelFamily} model limit until ${modelRateLimitInfo.resetAt}`
         )
         return {
           statusCode: 403,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            error: 'opus_weekly_limit',
+            error: this._getModelRateLimitErrorCode(requestModelFamily),
             message: limitMessage
           }),
           accountId
@@ -779,24 +861,33 @@ class ClaudeRelayService {
               `💰 [Non-Stream] "Extra usage required" 429 for account ${accountId}, skipping rate limit marking`
             )
           } else {
-            const resetHeader = response.headers
-              ? response.headers['anthropic-ratelimit-unified-reset']
-              : null
-            const parsedResetTimestamp = resetHeader ? parseInt(resetHeader, 10) : NaN
+            const parsedResetTimestamp = this._getRateLimitResetTimestamp(response.headers)
 
-            if (isOpusModelRequest && !Number.isNaN(parsedResetTimestamp)) {
-              await claudeAccountService.markAccountOpusRateLimited(accountId, parsedResetTimestamp)
-              logger.warn(
-                `🚫 Account ${accountId} hit Opus limit, resets at ${new Date(parsedResetTimestamp * 1000).toISOString()}`
+            if (
+              this._shouldUseModelLevelRateLimit(
+                requestModelFamily,
+                response.headers,
+                parsedResetTimestamp
+              )
+            ) {
+              await this._markModelRateLimited(
+                accountId,
+                sessionHash,
+                requestModelFamily,
+                parsedResetTimestamp,
+                '[Non-Stream]'
               )
 
               if (isDedicatedOfficialAccount) {
-                const limitMessage = this._buildOpusLimitMessage(parsedResetTimestamp)
+                const limitMessage = this._buildModelLimitMessage(
+                  requestModelFamily,
+                  parsedResetTimestamp
+                )
                 return {
                   statusCode: 403,
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    error: 'opus_weekly_limit',
+                    error: this._getModelRateLimitErrorCode(requestModelFamily),
                     message: limitMessage
                   }),
                   accountId
@@ -804,7 +895,7 @@ class ClaudeRelayService {
               }
             } else {
               isRateLimited = true
-              if (!Number.isNaN(parsedResetTimestamp)) {
+              if (parsedResetTimestamp) {
                 rateLimitResetTimestamp = parsedResetTimestamp
                 logger.info(
                   `🕐 Extracted rate limit reset timestamp: ${rateLimitResetTimestamp} (${new Date(rateLimitResetTimestamp * 1000).toISOString()})`
@@ -910,6 +1001,16 @@ class ClaudeRelayService {
         )
         if (isRateLimited) {
           await unifiedClaudeScheduler.removeAccountRateLimit(accountId, accountType)
+        }
+
+        if (accountType === 'claude-official' && requestModelFamily) {
+          const activeModelRateLimit = await claudeAccountService.isAccountModelRateLimited(
+            accountId,
+            requestModelFamily
+          )
+          if (activeModelRateLimit) {
+            await claudeAccountService.clearAccountModelRateLimit(accountId, requestModelFamily)
+          }
         }
 
         // 如果请求成功，检查并移除过载状态
@@ -1881,8 +1982,7 @@ class ClaudeRelayService {
         requestedModel: requestBody.model
       })
 
-      const isOpusModelRequest =
-        typeof requestBody?.model === 'string' && requestBody.model.toLowerCase().includes('opus')
+      const requestModelFamily = getClaudeModelFamily(requestBody?.model)
 
       // 生成会话哈希用于sticky会话
       const sessionHash = sessionHelper.generateSessionHash(requestBody)
@@ -1905,6 +2005,21 @@ class ClaudeRelayService {
           responseStream.write(
             JSON.stringify({
               error: 'upstream_rate_limited',
+              message: limitMessage
+            })
+          )
+          responseStream.end()
+          return
+        }
+        if (error.code === 'CLAUDE_DEDICATED_MODEL_RATE_LIMITED') {
+          const limitMessage = this._buildModelLimitMessage(error.modelFamily, error.rateLimitEndAt)
+          if (!responseStream.headersSent) {
+            responseStream.status(403)
+            responseStream.setHeader('Content-Type', 'application/json')
+          }
+          responseStream.write(
+            JSON.stringify({
+              error: this._getModelRateLimitErrorCode(error.modelFamily),
               message: limitMessage
             })
           )
@@ -2000,8 +2115,13 @@ class ClaudeRelayService {
       // 获取账户信息
       let account = await claudeAccountService.getAccount(accountId)
 
-      if (isOpusModelRequest) {
-        await claudeAccountService.clearExpiredOpusRateLimit(accountId)
+      let modelRateLimitInfo = null
+      if (accountType === 'claude-official' && requestModelFamily) {
+        await claudeAccountService.clearExpiredModelRateLimit(accountId, requestModelFamily)
+        modelRateLimitInfo = await claudeAccountService.getAccountModelRateLimitInfo(
+          accountId,
+          requestModelFamily
+        )
         account = await claudeAccountService.getAccount(accountId)
       }
 
@@ -2011,20 +2131,18 @@ class ClaudeRelayService {
         !apiKeyData.claudeAccountId.startsWith('group:') &&
         apiKeyData.claudeAccountId === accountId
 
-      let opusRateLimitActive = false
-      if (isOpusModelRequest) {
-        opusRateLimitActive = await claudeAccountService.isAccountOpusRateLimited(accountId)
-      }
-
-      if (isOpusModelRequest && isDedicatedOfficialAccount && opusRateLimitActive) {
-        const limitMessage = this._buildOpusLimitMessage(account?.opusRateLimitEndAt)
+      if (isDedicatedOfficialAccount && modelRateLimitInfo?.isRateLimited) {
+        const limitMessage = this._buildModelLimitMessage(
+          requestModelFamily,
+          modelRateLimitInfo.resetAt
+        )
         if (!responseStream.headersSent) {
           responseStream.status(403)
           responseStream.setHeader('Content-Type', 'application/json')
         }
         responseStream.write(
           JSON.stringify({
-            error: 'opus_weekly_limit',
+            error: this._getModelRateLimitErrorCode(requestModelFamily),
             message: limitMessage
           })
         )
@@ -2133,8 +2251,7 @@ class ClaudeRelayService {
     // 获取账户信息用于统一 User-Agent
     const account = await claudeAccountService.getAccount(accountId)
 
-    const isOpusModelRequest =
-      typeof body?.model === 'string' && body.model.toLowerCase().includes('opus')
+    const requestModelFamily = getClaudeModelFamily(body?.model)
 
     // 使用公共方法准备请求头和 payload
     const prepared = await this._prepareRequestHeadersAndPayload(
@@ -2235,31 +2352,34 @@ class ClaudeRelayService {
             }
 
             // 真正的限流处理
-            const resetHeader = res.headers
-              ? res.headers['anthropic-ratelimit-unified-reset']
-              : null
-            const parsedResetTimestamp = resetHeader ? parseInt(resetHeader, 10) : NaN
+            const parsedResetTimestamp = this._getRateLimitResetTimestamp(res.headers)
 
-            if (isOpusModelRequest) {
-              if (!Number.isNaN(parsedResetTimestamp)) {
-                await claudeAccountService.markAccountOpusRateLimited(
-                  accountId,
+            if (
+              this._shouldUseModelLevelRateLimit(
+                requestModelFamily,
+                res.headers,
+                parsedResetTimestamp
+              )
+            ) {
+              await this._markModelRateLimited(
+                accountId,
+                sessionHash,
+                requestModelFamily,
+                parsedResetTimestamp,
+                '[Stream]'
+              )
+              if (isDedicatedOfficialAccount) {
+                const limitMessage = this._buildModelLimitMessage(
+                  requestModelFamily,
                   parsedResetTimestamp
                 )
-                logger.warn(
-                  `🚫 [Stream] Account ${accountId} hit Opus limit, resets at ${new Date(parsedResetTimestamp * 1000).toISOString()}`
-                )
-              }
-
-              if (isDedicatedOfficialAccount) {
-                const limitMessage = this._buildOpusLimitMessage(parsedResetTimestamp)
                 if (!responseStream.headersSent) {
                   responseStream.status(403)
                   responseStream.setHeader('Content-Type', 'application/json')
                 }
                 responseStream.write(
                   JSON.stringify({
-                    error: 'opus_weekly_limit',
+                    error: this._getModelRateLimitErrorCode(requestModelFamily),
                     message: limitMessage
                   })
                 )
@@ -2268,9 +2388,7 @@ class ClaudeRelayService {
                 return
               }
             } else {
-              const rateLimitResetTimestamp = Number.isNaN(parsedResetTimestamp)
-                ? null
-                : parsedResetTimestamp
+              const rateLimitResetTimestamp = parsedResetTimestamp || null
               await unifiedClaudeScheduler.markAccountRateLimited(
                 accountId,
                 accountType,
@@ -2914,22 +3032,26 @@ class ClaudeRelayService {
 
           // 处理限流状态
           if (rateLimitDetected || res.statusCode === 429) {
-            const resetHeader = res.headers
-              ? res.headers['anthropic-ratelimit-unified-reset']
-              : null
-            const parsedResetTimestamp = resetHeader ? parseInt(resetHeader, 10) : NaN
+            const parsedResetTimestamp = this._getRateLimitResetTimestamp(res.headers)
 
-            if (isOpusModelRequest && !Number.isNaN(parsedResetTimestamp)) {
-              await claudeAccountService.markAccountOpusRateLimited(accountId, parsedResetTimestamp)
-              logger.warn(
-                `🚫 [Stream] Account ${accountId} hit Opus limit, resets at ${new Date(parsedResetTimestamp * 1000).toISOString()}`
+            if (
+              this._shouldUseModelLevelRateLimit(
+                requestModelFamily,
+                res.headers,
+                parsedResetTimestamp
+              )
+            ) {
+              await this._markModelRateLimited(
+                accountId,
+                sessionHash,
+                requestModelFamily,
+                parsedResetTimestamp,
+                '[Stream]'
               )
             } else {
-              const rateLimitResetTimestamp = Number.isNaN(parsedResetTimestamp)
-                ? null
-                : parsedResetTimestamp
+              const rateLimitResetTimestamp = parsedResetTimestamp || null
 
-              if (!Number.isNaN(parsedResetTimestamp)) {
+              if (parsedResetTimestamp) {
                 logger.info(
                   `🕐 Extracted rate limit reset timestamp from stream: ${parsedResetTimestamp} (${new Date(parsedResetTimestamp * 1000).toISOString()})`
                 )
@@ -2961,6 +3083,16 @@ class ClaudeRelayService {
             )
             if (isRateLimited) {
               await unifiedClaudeScheduler.removeAccountRateLimit(accountId, accountType)
+            }
+
+            if (accountType === 'claude-official' && requestModelFamily) {
+              const activeModelRateLimit = await claudeAccountService.isAccountModelRateLimited(
+                accountId,
+                requestModelFamily
+              )
+              if (activeModelRateLimit) {
+                await claudeAccountService.clearAccountModelRateLimit(accountId, requestModelFamily)
+              }
             }
 
             // 如果流式请求成功，检查并移除过载状态

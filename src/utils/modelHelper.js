@@ -238,6 +238,30 @@ function isClaudeFamilyModel(modelName) {
   return false
 }
 
+function getClaudeModelFamily(modelName) {
+  if (!modelName || typeof modelName !== 'string') {
+    return null
+  }
+
+  const { baseModel } = parseVendorPrefixedModel(modelName)
+  const m = (stripLongContextSuffix(baseModel) || '').trim().toLowerCase()
+  if (!m) {
+    return null
+  }
+
+  if (m.includes('opus')) {
+    return 'opus'
+  }
+  if (m.includes('sonnet')) {
+    return 'sonnet'
+  }
+  if (m.includes('haiku')) {
+    return 'haiku'
+  }
+
+  return null
+}
+
 module.exports = {
   parseVendorPrefixedModel,
   hasVendorPrefix,
@@ -245,5 +269,6 @@ module.exports = {
   stripLongContextSuffix,
   getVendorType,
   isOpus45OrNewer,
-  isClaudeFamilyModel
+  isClaudeFamilyModel,
+  getClaudeModelFamily
 }

@@ -8,7 +8,8 @@ const logger = require('../../utils/logger')
 const {
   parseVendorPrefixedModel,
   stripLongContextSuffix,
-  isOpus45OrNewer
+  isOpus45OrNewer,
+  getClaudeModelFamily
 } = require('../../utils/modelHelper')
 const { isSchedulable, sortAccountsByPriority } = require('../../utils/commonHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
@@ -35,6 +36,7 @@ function isProAccount(info) {
   if (info.hasClaudePro === true && info.hasClaudeMax !== true) {
     return true
   }
+
   // Local configured account type
   return info.accountType === 'claude_pro'
 }
@@ -42,6 +44,44 @@ function isProAccount(info) {
 class UnifiedClaudeScheduler {
   constructor() {
     this.SESSION_MAPPING_PREFIX = 'unified_claude_session_mapping:'
+  }
+
+  async _getOfficialAccountModelRateLimitInfo(accountId, requestedModel, context = '') {
+    const modelFamily = getClaudeModelFamily(requestedModel)
+    if (!modelFamily) {
+      return null
+    }
+
+    const rateLimitInfo = await claudeAccountService.getAccountModelRateLimitInfo(
+      accountId,
+      modelFamily
+    )
+    if (!rateLimitInfo.isRateLimited) {
+      return null
+    }
+
+    logger.info(
+      `🚫 Claude official account ${accountId} skipped due to active ${rateLimitInfo.label} limit${context ? ` ${context}` : ''}`
+    )
+    return rateLimitInfo
+  }
+
+  async _throwDedicatedModelRateLimitIfNeeded(accountId, requestedModel) {
+    const modelRateLimitInfo = await this._getOfficialAccountModelRateLimitInfo(
+      accountId,
+      requestedModel,
+      'for dedicated binding'
+    )
+    if (!modelRateLimitInfo) {
+      return
+    }
+
+    const error = new Error(`Dedicated Claude account is ${modelRateLimitInfo.label} rate limited`)
+    error.code = 'CLAUDE_DEDICATED_MODEL_RATE_LIMITED'
+    error.accountId = accountId
+    error.modelFamily = modelRateLimitInfo.modelFamily
+    error.rateLimitEndAt = modelRateLimitInfo.resetAt
+    throw error
   }
 
   // 🔍 检查账户是否支持请求的模型
@@ -235,11 +275,6 @@ class UnifiedClaudeScheduler {
       logger.debug(
         `🔍 Model parsing - Original: ${requestedModel}, Vendor: ${vendor}, Effective: ${effectiveModel}`
       )
-      const isOpusRequest =
-        effectiveModel && typeof effectiveModel === 'string'
-          ? effectiveModel.toLowerCase().includes('opus')
-          : false
-
       // 如果是 CCR 前缀，只在 CCR 账户池中选择
       if (vendor === 'ccr') {
         logger.info(`🎯 CCR vendor prefix detected, routing to CCR accounts only`)
@@ -289,9 +324,7 @@ class UnifiedClaudeScheduler {
                 `⚠️ Bound Claude OAuth account ${apiKeyData.claudeAccountId} is not schedulable (schedulable: ${boundAccount?.schedulable}), falling back to pool`
               )
             } else {
-              if (isOpusRequest) {
-                await claudeAccountService.clearExpiredOpusRateLimit(boundAccount.id)
-              }
+              await this._throwDedicatedModelRateLimitIfNeeded(boundAccount.id, effectiveModel)
               logger.info(
                 `🎯 Using bound dedicated Claude OAuth account: ${boundAccount.name} (${apiKeyData.claudeAccountId}) for API key ${apiKeyData.name}`
               )
@@ -468,10 +501,6 @@ class UnifiedClaudeScheduler {
   // 📋 获取所有可用账户（合并官方和Console）
   async _getAllAvailableAccounts(apiKeyData, requestedModel = null, includeCcr = false) {
     const availableAccounts = []
-    const isOpusRequest =
-      requestedModel && typeof requestedModel === 'string'
-        ? requestedModel.toLowerCase().includes('opus')
-        : false
 
     // 如果API Key绑定了专属账户，优先返回
     // 1. 检查Claude OAuth账户绑定
@@ -505,6 +534,7 @@ class UnifiedClaudeScheduler {
               `⚠️ Bound Claude OAuth account ${apiKeyData.claudeAccountId} is not schedulable (schedulable: ${boundAccount?.schedulable})`
             )
           } else {
+            await this._throwDedicatedModelRateLimitIfNeeded(boundAccount.id, requestedModel)
             logger.info(
               `🎯 Using bound dedicated Claude OAuth account: ${boundAccount.name} (${apiKeyData.claudeAccountId})`
             )
@@ -654,14 +684,10 @@ class UnifiedClaudeScheduler {
           continue
         }
 
-        if (isOpusRequest) {
-          const isOpusRateLimited = await claudeAccountService.isAccountOpusRateLimited(account.id)
-          if (isOpusRateLimited) {
-            logger.info(
-              `🚫 Skipping account ${account.name} (${account.id}) due to active Opus limit`
-            )
-            continue
-          }
+        if (
+          await this._getOfficialAccountModelRateLimitInfo(account.id, requestedModel, 'in pool')
+        ) {
+          continue
         }
 
         availableAccounts.push({
@@ -1028,15 +1054,13 @@ class UnifiedClaudeScheduler {
         }
 
         if (
-          requestedModel &&
-          typeof requestedModel === 'string' &&
-          requestedModel.toLowerCase().includes('opus')
+          await this._getOfficialAccountModelRateLimitInfo(
+            accountId,
+            requestedModel,
+            'in session check'
+          )
         ) {
-          const isOpusRateLimited = await claudeAccountService.isAccountOpusRateLimited(accountId)
-          if (isOpusRateLimited) {
-            logger.info(`🚫 Account ${accountId} skipped due to active Opus limit (session check)`)
-            return false
-          }
+          return false
         }
 
         return true
@@ -1518,10 +1542,6 @@ class UnifiedClaudeScheduler {
       }
 
       const availableAccounts = []
-      const isOpusRequest =
-        requestedModel && typeof requestedModel === 'string'
-          ? requestedModel.toLowerCase().includes('opus')
-          : false
 
       // 获取所有成员账户的详细信息
       for (const memberId of memberIds) {
@@ -1590,16 +1610,15 @@ class UnifiedClaudeScheduler {
             continue
           }
 
-          if (accountType === 'claude-official' && isOpusRequest) {
-            const isOpusRateLimited = await claudeAccountService.isAccountOpusRateLimited(
-              account.id
-            )
-            if (isOpusRateLimited) {
-              logger.info(
-                `🚫 Skipping group member ${account.name} (${account.id}) due to active Opus limit`
-              )
-              continue
-            }
+          if (
+            accountType === 'claude-official' &&
+            (await this._getOfficialAccountModelRateLimitInfo(
+              account.id,
+              requestedModel,
+              'in group'
+            ))
+          ) {
+            continue
           }
 
           // 🔒 检查 Claude Console 账户的并发限制

@@ -1,6 +1,10 @@
 const { CLAUDE_MODELS, OPENAI_MODELS } = require('../config/models')
 const modelService = require('../src/services/modelService')
-const { getEffectiveModel, stripLongContextSuffix } = require('../src/utils/modelHelper')
+const {
+  getEffectiveModel,
+  stripLongContextSuffix,
+  getClaudeModelFamily
+} = require('../src/utils/modelHelper')
 
 describe('models config', () => {
   it('places Claude Sonnet 4.6 as the second Claude model option', () => {
@@ -50,5 +54,12 @@ describe('models config', () => {
   it('normalizes Claude Code 1M model variants before scheduling and forwarding', () => {
     expect(stripLongContextSuffix('claude-opus-4-7[1m]')).toBe('claude-opus-4-7')
     expect(getEffectiveModel('ccr,claude-sonnet-4-6[1m]')).toBe('claude-sonnet-4-6')
+  })
+
+  it('detects Claude model families for model-level scheduling limits', () => {
+    expect(getClaudeModelFamily('claude-sonnet-4-6[1m]')).toBe('sonnet')
+    expect(getClaudeModelFamily('ccr,claude-opus-4-7')).toBe('opus')
+    expect(getClaudeModelFamily('us.anthropic.claude-3-5-haiku-20241022-v1:0')).toBe('haiku')
+    expect(getClaudeModelFamily('gpt-5.5')).toBeNull()
   })
 })
