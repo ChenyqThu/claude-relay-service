@@ -310,7 +310,7 @@
                       class="order-column sticky left-0 z-20 w-[44px] min-w-[44px] px-2 py-4 text-center text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300"
                       title="拖拽行首按钮调整顺序"
                     >
-                      <i class="fas fa-grip-vertical text-blue-500" />
+                      <span class="sr-only">排序</span>
                     </th>
                     <th
                       v-if="shouldShowCheckboxes"
@@ -461,6 +461,7 @@
                     <tr
                       :class="[
                         'table-row',
+                        'group',
                         'border-b-2 border-gray-200/80 dark:border-gray-700/50',
                         'hover:shadow-sm',
                         draggedApiKeyId === key.id ? 'opacity-50' : '',
@@ -473,7 +474,7 @@
                     >
                       <td class="order-column sticky left-0 z-10 px-2 py-3 text-center">
                         <button
-                          class="inline-flex h-7 w-7 cursor-grab items-center justify-center rounded-md border border-gray-200 bg-white text-gray-400 transition-colors hover:border-blue-300 hover:text-blue-500 active:cursor-grabbing dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-600 dark:hover:text-blue-300"
+                          class="inline-flex h-7 w-7 cursor-grab items-center justify-center rounded-md border border-gray-200 bg-white text-gray-400 opacity-0 transition-all duration-150 hover:border-blue-300 hover:text-blue-500 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 active:cursor-grabbing group-hover:opacity-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-600 dark:hover:text-blue-300"
                           draggable="true"
                           title="拖拽调整顺序"
                           type="button"
