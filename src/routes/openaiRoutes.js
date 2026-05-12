@@ -24,6 +24,11 @@ const requestBodyRuleService = require('../services/requestBodyRuleService')
 
 const IMAGE_SCHEDULER_MODEL = 'gpt-5'
 const CODEX_IMAGE_GENERATION_TOOL = { type: 'image_generation', output_format: 'png' }
+const IMAGE_SELECTION_OPTIONS = Object.freeze({
+  purpose: 'image-generation',
+  preferAccountTypes: ['openai-responses', 'openai'],
+  requireOpenAICodexImageGeneration: true
+})
 
 // Codex CLI 系统提示词（非 Codex CLI 客户端请求时注入，统一端点也使用）
 const CODEX_CLI_INSTRUCTIONS =
@@ -211,7 +216,12 @@ async function applyRateLimitTracking(
 }
 
 // 使用统一调度器选择 OpenAI 账户
-async function getOpenAIAuthToken(apiKeyData, sessionId = null, requestedModel = null) {
+async function getOpenAIAuthToken(
+  apiKeyData,
+  sessionId = null,
+  requestedModel = null,
+  selectionOptions = {}
+) {
   try {
     // 生成会话哈希（如果有会话ID）
     const sessionHash = sessionId
@@ -219,11 +229,12 @@ async function getOpenAIAuthToken(apiKeyData, sessionId = null, requestedModel =
       : null
 
     // 使用统一调度器选择账户
-    const result = await unifiedOpenAIScheduler.selectAccountForApiKey(
-      apiKeyData,
-      sessionHash,
-      requestedModel
-    )
+    const schedulerArgs = [apiKeyData, sessionHash, requestedModel]
+    if (selectionOptions && Object.keys(selectionOptions).length > 0) {
+      schedulerArgs.push(selectionOptions)
+    }
+
+    const result = await unifiedOpenAIScheduler.selectAccountForApiKey(...schedulerArgs)
 
     if (!result || !result.accountId) {
       const error = new Error('No available OpenAI account found')
@@ -1025,11 +1036,17 @@ const handleImageRequest = async (req, res, action) => {
     }
 
     const sessionId = getImageRequestSessionId(req)
-    const sessionHash = sessionId
-      ? crypto.createHash('sha256').update(sessionId).digest('hex')
+    const imageSessionId = sessionId ? `image:${sessionId}` : null
+    const sessionHash = imageSessionId
+      ? crypto.createHash('sha256').update(imageSessionId).digest('hex')
       : null
 
-    const authContext = await getOpenAIAuthToken(apiKeyData, sessionId, IMAGE_SCHEDULER_MODEL)
+    const authContext = await getOpenAIAuthToken(
+      apiKeyData,
+      imageSessionId,
+      IMAGE_SCHEDULER_MODEL,
+      IMAGE_SELECTION_OPTIONS
+    )
     const context = {
       ...authContext,
       sessionHash,

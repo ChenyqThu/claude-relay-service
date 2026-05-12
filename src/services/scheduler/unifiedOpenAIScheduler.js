@@ -3,12 +3,127 @@ const openaiResponsesAccountService = require('../account/openaiResponsesAccount
 const accountGroupService = require('../accountGroupService')
 const redis = require('../../models/redis')
 const logger = require('../../utils/logger')
-const { isSchedulable, sortAccountsByPriority } = require('../../utils/commonHelper')
+const { isSchedulable, isTruthy, sortAccountsByPriority } = require('../../utils/commonHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
+
+const IMAGE_GENERATION_MODEL = 'gpt-image-2'
+const IMAGE_SELECTION_PURPOSE = 'image-generation'
+
+function normalizeSupportedModels(value) {
+  if (!value) {
+    return []
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim().toLowerCase()).filter(Boolean)
+  }
+
+  if (typeof value === 'object') {
+    return Object.keys(value)
+      .map((item) => String(item).trim().toLowerCase())
+      .filter(Boolean)
+  }
+
+  return String(value)
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function supportsCodexImageGeneration(account = {}) {
+  if (
+    isTruthy(account.codexImageGenerationEnabled) ||
+    isTruthy(account.enableCodexImageGeneration) ||
+    isTruthy(account.supportsCodexImages) ||
+    isTruthy(account.imageGenerationEnabled)
+  ) {
+    return true
+  }
+
+  const supportedModels = normalizeSupportedModels(account.supportedModels)
+  return supportedModels.includes(IMAGE_GENERATION_MODEL)
+}
 
 class UnifiedOpenAIScheduler {
   constructor() {
     this.SESSION_MAPPING_PREFIX = 'unified_openai_session_mapping:'
+  }
+
+  _normalizeSelectionOptions(options = {}) {
+    return {
+      purpose: options.purpose || null,
+      preferAccountTypes: Array.isArray(options.preferAccountTypes)
+        ? options.preferAccountTypes
+        : [],
+      requireOpenAICodexImageGeneration:
+        options.requireOpenAICodexImageGeneration === true ||
+        options.purpose === IMAGE_SELECTION_PURPOSE
+    }
+  }
+
+  _isAccountCompatibleWithSelection(account, accountType, options = {}) {
+    if (!account) {
+      return false
+    }
+
+    if (options.requireOpenAICodexImageGeneration && accountType === 'openai') {
+      return supportsCodexImageGeneration(account)
+    }
+
+    return true
+  }
+
+  _sortAccountsForSelection(accounts, options = {}) {
+    const sortedAccounts = sortAccountsByPriority(accounts)
+
+    if (!options.preferAccountTypes || options.preferAccountTypes.length === 0) {
+      return sortedAccounts
+    }
+
+    const fallbackIndex = options.preferAccountTypes.length
+    return sortedAccounts.sort((a, b) => {
+      const indexA = options.preferAccountTypes.indexOf(a.accountType)
+      const indexB = options.preferAccountTypes.indexOf(b.accountType)
+      const rankA = indexA === -1 ? fallbackIndex : indexA
+      const rankB = indexB === -1 ? fallbackIndex : indexB
+      return rankA - rankB
+    })
+  }
+
+  _createNoAvailableAccountsError(requestedModel, options = {}, scope = 'OpenAI') {
+    if (options.purpose === IMAGE_SELECTION_PURPOSE) {
+      const error = new Error(
+        `No available ${scope} image-capable accounts. Configure an OpenAI-Responses account that supports /v1/images, or enable codexImageGenerationEnabled on a verified Codex Direct OAuth account.`
+      )
+      error.statusCode = 402
+      return error
+    }
+
+    if (requestedModel) {
+      const error = new Error(
+        `No available ${scope} accounts support the requested model: ${requestedModel}`
+      )
+      error.statusCode = 400
+      return error
+    }
+
+    const error = new Error(`No available ${scope} accounts`)
+    error.statusCode = 402
+    return error
+  }
+
+  _createIncompatibleAccountError(account, accountType, options = {}) {
+    if (options.purpose === IMAGE_SELECTION_PURPOSE && accountType === 'openai') {
+      const error = new Error(
+        `OpenAI account ${account.name || account.id} is not enabled for Codex image generation. Configure an OpenAI-Responses image provider, or set codexImageGenerationEnabled=true after verifying this OAuth account supports image_generation.`
+      )
+      error.statusCode = 400
+      return error
+    }
+
+    const error = new Error(`Account ${account.name || account.id} is not compatible`)
+    error.statusCode = 400
+    return error
   }
 
   // 🔧 辅助方法：检查账户是否被限流（兼容字符串和对象格式）
@@ -119,8 +234,15 @@ class UnifiedOpenAIScheduler {
   }
 
   // 🎯 统一调度OpenAI账号
-  async selectAccountForApiKey(apiKeyData, sessionHash = null, requestedModel = null) {
+  async selectAccountForApiKey(
+    apiKeyData,
+    sessionHash = null,
+    requestedModel = null,
+    options = {}
+  ) {
     try {
+      const selectionOptions = this._normalizeSelectionOptions(options)
+
       // 如果API Key绑定了专属账户或分组，优先使用
       if (apiKeyData.openaiAccountId) {
         // 检查是否是分组
@@ -129,7 +251,12 @@ class UnifiedOpenAIScheduler {
           logger.info(
             `🎯 API key ${apiKeyData.name} is bound to group ${groupId}, selecting from group`
           )
-          return await this.selectAccountFromGroup(groupId, sessionHash, requestedModel, apiKeyData)
+          return await this.selectAccountFromGroup(
+            groupId,
+            sessionHash,
+            requestedModel,
+            selectionOptions
+          )
         }
 
         // 普通专属账户 - 根据前缀判断是 OpenAI 还是 OpenAI-Responses 类型
@@ -154,6 +281,12 @@ class UnifiedOpenAIScheduler {
           boundAccount.status !== 'unauthorized'
 
         if (isActiveBoundAccount) {
+          if (
+            !this._isAccountCompatibleWithSelection(boundAccount, accountType, selectionOptions)
+          ) {
+            throw this._createIncompatibleAccountError(boundAccount, accountType, selectionOptions)
+          }
+
           // 检查是否临时不可用
           const isTempUnavailable = await upstreamErrorHelper.isTempUnavailable(
             boundAccount.id,
@@ -279,7 +412,8 @@ class UnifiedOpenAIScheduler {
           // 验证映射的账户是否仍然可用
           const isAvailable = await this._isAccountAvailable(
             mappedAccount.accountId,
-            mappedAccount.accountType
+            mappedAccount.accountType,
+            selectionOptions
           )
           if (isAvailable) {
             // 🚀 智能会话续期（续期 unified 映射键，按配置）
@@ -300,25 +434,18 @@ class UnifiedOpenAIScheduler {
       }
 
       // 获取所有可用账户
-      const availableAccounts = await this._getAllAvailableAccounts(apiKeyData, requestedModel)
+      const availableAccounts = await this._getAllAvailableAccounts(
+        apiKeyData,
+        requestedModel,
+        selectionOptions
+      )
 
       if (availableAccounts.length === 0) {
-        // 提供更详细的错误信息
-        if (requestedModel) {
-          const error = new Error(
-            `No available OpenAI accounts support the requested model: ${requestedModel}`
-          )
-          error.statusCode = 400 // Bad Request - 模型不支持
-          throw error
-        } else {
-          const error = new Error('No available OpenAI accounts')
-          error.statusCode = 402 // Payment Required - 资源耗尽
-          throw error
-        }
+        throw this._createNoAvailableAccountsError(requestedModel, selectionOptions)
       }
 
       // 按优先级和最后使用时间排序（与 Claude/Gemini 调度保持一致）
-      const sortedAccounts = sortAccountsByPriority(availableAccounts)
+      const sortedAccounts = this._sortAccountsForSelection(availableAccounts, selectionOptions)
 
       // 选择第一个账户
       const selectedAccount = sortedAccounts[0]
@@ -353,7 +480,7 @@ class UnifiedOpenAIScheduler {
   }
 
   // 📋 获取所有可用账户（仅共享池）
-  async _getAllAvailableAccounts(apiKeyData, requestedModel = null) {
+  async _getAllAvailableAccounts(apiKeyData, requestedModel = null, options = {}) {
     const availableAccounts = []
 
     // 注意：专属账户的处理已经在 selectAccountForApiKey 中完成
@@ -368,6 +495,13 @@ class UnifiedOpenAIScheduler {
         (account.accountType === 'shared' || !account.accountType) // 兼容旧数据
       ) {
         const accountId = account.id || account.accountId
+
+        if (!this._isAccountCompatibleWithSelection(account, 'openai', options)) {
+          logger.debug(
+            `⏭️ Skipping OpenAI account ${account.name} - not compatible with ${options.purpose || 'request'}`
+          )
+          continue
+        }
 
         const readiness = await this._ensureAccountReadyForScheduling(account, accountId, {
           sanitized: true
@@ -504,6 +638,12 @@ class UnifiedOpenAIScheduler {
 
         // OpenAI-Responses 账户默认支持所有模型
         // 因为它们是第三方兼容 API，模型支持由第三方决定
+        if (!this._isAccountCompatibleWithSelection(account, 'openai-responses', options)) {
+          logger.debug(
+            `⏭️ Skipping OpenAI-Responses account ${account.name} - not compatible with ${options.purpose || 'request'}`
+          )
+          continue
+        }
 
         availableAccounts.push({
           ...account,
@@ -519,7 +659,7 @@ class UnifiedOpenAIScheduler {
   }
 
   // 🔍 检查账户是否可用
-  async _isAccountAvailable(accountId, accountType) {
+  async _isAccountAvailable(accountId, accountType, options = {}) {
     try {
       if (accountType === 'openai') {
         const account = await openaiAccountService.getAccount(accountId)
@@ -529,6 +669,12 @@ class UnifiedOpenAIScheduler {
           account.status === 'error' ||
           account.status === 'unauthorized'
         ) {
+          return false
+        }
+        if (!this._isAccountCompatibleWithSelection(account, accountType, options)) {
+          logger.info(
+            `🚫 OpenAI account ${accountId} is not compatible with ${options.purpose || 'request'}`
+          )
           return false
         }
         const readiness = await this._ensureAccountReadyForScheduling(account, accountId, {
@@ -564,6 +710,12 @@ class UnifiedOpenAIScheduler {
           account.status === 'error' ||
           account.status === 'unauthorized'
         ) {
+          return false
+        }
+        if (!this._isAccountCompatibleWithSelection(account, accountType, options)) {
+          logger.info(
+            `🚫 OpenAI-Responses account ${accountId} is not compatible with ${options.purpose || 'request'}`
+          )
           return false
         }
         // 检查是否可调度
@@ -812,8 +964,10 @@ class UnifiedOpenAIScheduler {
   }
 
   // 👥 从分组中选择账户
-  async selectAccountFromGroup(groupId, sessionHash = null, requestedModel = null) {
+  async selectAccountFromGroup(groupId, sessionHash = null, requestedModel = null, options = {}) {
     try {
+      const selectionOptions = this._normalizeSelectionOptions(options)
+
       // 获取分组信息
       const group = await accountGroupService.getGroup(groupId)
       if (!group) {
@@ -839,7 +993,8 @@ class UnifiedOpenAIScheduler {
           if (isInGroup) {
             const isAvailable = await this._isAccountAvailable(
               mappedAccount.accountId,
-              mappedAccount.accountType
+              mappedAccount.accountType,
+              selectionOptions
             )
             if (isAvailable) {
               // 🚀 智能会话续期（续期 unified 映射键，按配置）
@@ -883,6 +1038,13 @@ class UnifiedOpenAIScheduler {
           (account.isActive === true || account.isActive === 'true') &&
           account.status !== 'error'
         ) {
+          if (!this._isAccountCompatibleWithSelection(account, accountType, selectionOptions)) {
+            logger.debug(
+              `⏭️ Skipping group member ${accountType} account ${account.name} - not compatible with ${selectionOptions.purpose || 'request'}`
+            )
+            continue
+          }
+
           const readiness = await this._ensureAccountReadyForScheduling(account, account.id, {
             sanitized: false
           })
@@ -946,13 +1108,15 @@ class UnifiedOpenAIScheduler {
       }
 
       if (availableAccounts.length === 0) {
-        const error = new Error(`No available accounts in group ${group.name}`)
-        error.statusCode = 402 // Payment Required - 资源耗尽
-        throw error
+        throw this._createNoAvailableAccountsError(
+          requestedModel,
+          selectionOptions,
+          `accounts in group ${group.name}`
+        )
       }
 
       // 按优先级和最后使用时间排序（与 Claude/Gemini 调度保持一致）
-      const sortedAccounts = sortAccountsByPriority(availableAccounts)
+      const sortedAccounts = this._sortAccountsForSelection(availableAccounts, selectionOptions)
 
       // 选择第一个账户
       const selectedAccount = sortedAccounts[0]

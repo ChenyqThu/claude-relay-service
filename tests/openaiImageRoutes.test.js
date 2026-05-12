@@ -149,7 +149,7 @@ describe('openai image routes', () => {
     openaiAccountService.decrypt.mockReturnValue('decrypted-token')
   })
 
-  test('selects a Codex-capable OpenAI account and dispatches image generations', async () => {
+  test('selects an image-capable OpenAI account and dispatches image generations', async () => {
     unifiedOpenAIScheduler.selectAccountForApiKey.mockResolvedValue({
       accountId: 'openai-1',
       accountType: 'openai'
@@ -175,8 +175,13 @@ describe('openai image routes', () => {
 
     expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
       req.apiKey,
-      createHash('image-session'),
-      'gpt-5'
+      createHash('image:image-session'),
+      'gpt-5',
+      {
+        purpose: 'image-generation',
+        preferAccountTypes: ['openai-responses', 'openai'],
+        requireOpenAICodexImageGeneration: true
+      }
     )
     expect(openaiImageRelayService.handleGeneration).toHaveBeenCalledWith(
       req,
@@ -185,7 +190,7 @@ describe('openai image routes', () => {
         accessToken: 'decrypted-token',
         accountId: 'openai-1',
         accountType: 'openai',
-        sessionHash: createHash('image-session'),
+        sessionHash: createHash('image:image-session'),
         apiKeyData: req.apiKey
       })
     )
@@ -213,6 +218,16 @@ describe('openai image routes', () => {
 
     await openaiRoutes.handleImageGeneration(req, res)
 
+    expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
+      req.apiKey,
+      null,
+      'gpt-5',
+      {
+        purpose: 'image-generation',
+        preferAccountTypes: ['openai-responses', 'openai'],
+        requireOpenAICodexImageGeneration: true
+      }
+    )
     expect(openaiImageRelayService.passthroughOpenAIResponses).toHaveBeenCalledWith(
       req,
       res,
