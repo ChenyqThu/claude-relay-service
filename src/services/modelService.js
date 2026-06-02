@@ -1,7 +1,13 @@
 const logger = require('../utils/logger')
 const modelsConfig = require('../../config/models')
-const modelPricing = require('../../data/model_pricing.json')
+const runtimeModelPricing = require('../../data/model_pricing.json')
+const fallbackModelPricing = require('../../resources/model-pricing/model_prices_and_context_window.json')
 const { stripLongContextSuffix } = require('../utils/modelHelper')
+
+const modelPricing = {
+  ...fallbackModelPricing,
+  ...runtimeModelPricing
+}
 
 /**
  * 模型服务

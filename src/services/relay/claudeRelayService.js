@@ -1449,10 +1449,17 @@ class ClaudeRelayService {
 
     try {
       // 使用缓存的定价数据
-      const pricingFilePath = path.join(__dirname, '../../data/model_pricing.json')
-      const pricingData = getPricingData(pricingFilePath)
+      const pricingFilePath = path.join(__dirname, '../../../data/model_pricing.json')
+      const fallbackPricingFilePath = path.join(
+        __dirname,
+        '../../../resources/model-pricing/model_prices_and_context_window.json'
+      )
+      const pricingData = {
+        ...(getPricingData(fallbackPricingFilePath) || {}),
+        ...(getPricingData(pricingFilePath) || {})
+      }
 
-      if (!pricingData) {
+      if (Object.keys(pricingData).length === 0) {
         logger.warn('⚠️ Model pricing file not found, skipping max_tokens validation')
         return
       }

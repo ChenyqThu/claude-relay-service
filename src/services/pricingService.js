@@ -228,6 +228,23 @@ class PricingService {
     return this.persistLocalHash(fileBuffer)
   }
 
+  mergeWithFallbackPricing(jsonData) {
+    if (!fs.existsSync(this.fallbackFile)) {
+      return jsonData
+    }
+
+    try {
+      const fallbackData = JSON.parse(fs.readFileSync(this.fallbackFile, 'utf8'))
+      return {
+        ...fallbackData,
+        ...jsonData
+      }
+    } catch (error) {
+      logger.warn(`⚠️  Failed to merge fallback pricing data: ${error.message}`)
+      return jsonData
+    }
+  }
+
   // 写入本地哈希文件
   persistLocalHash(content) {
     const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
@@ -262,7 +279,7 @@ class PricingService {
             this.persistLocalHash(buffer)
 
             // 更新内存中的数据
-            this.pricingData = jsonData
+            this.pricingData = this.mergeWithFallbackPricing(jsonData)
             this.lastUpdated = new Date()
 
             logger.success(`Downloaded pricing data for ${Object.keys(jsonData).length} models`)
@@ -293,7 +310,8 @@ class PricingService {
     try {
       if (fs.existsSync(this.pricingFile)) {
         const data = fs.readFileSync(this.pricingFile, 'utf8')
-        this.pricingData = JSON.parse(data)
+        const jsonData = JSON.parse(data)
+        this.pricingData = this.mergeWithFallbackPricing(jsonData)
 
         const stats = fs.statSync(this.pricingFile)
         this.lastUpdated = stats.mtime
@@ -328,7 +346,7 @@ class PricingService {
         this.persistLocalHash(formattedJson)
 
         // 更新内存中的数据
-        this.pricingData = jsonData
+        this.pricingData = this.mergeWithFallbackPricing(jsonData)
         this.lastUpdated = new Date()
 
         // 设置或重新设置文件监听器
@@ -844,7 +862,7 @@ class PricingService {
       }
 
       // 更新内存中的数据
-      this.pricingData = jsonData
+      this.pricingData = this.mergeWithFallbackPricing(jsonData)
       this.lastUpdated = new Date()
 
       const modelCount = Object.keys(jsonData).length

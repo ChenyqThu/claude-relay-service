@@ -19,6 +19,7 @@ const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const pricingService = require('../services/pricingService')
 const { getEffectiveModel } = require('../utils/modelHelper')
 const { createRequestDetailMeta } = require('../utils/requestDetailHelper')
+const { CLAUDE_MODELS } = require('../../config/models')
 
 // 🔧 辅助函数：检查 API Key 权限
 function checkPermissions(apiKeyData, requiredPermission = 'claude') {
@@ -70,21 +71,13 @@ router.get('/v1/models', authenticateApiKey, async (req, res) => {
       })
     }
 
-    // Claude 模型列表 - 只返回 opus-4 和 sonnet-4
-    let models = [
-      {
-        id: 'claude-opus-4-20250514',
-        object: 'model',
-        created: 1736726400, // 2025-01-13
-        owned_by: 'anthropic'
-      },
-      {
-        id: 'claude-sonnet-4-20250514',
-        object: 'model',
-        created: 1736726400, // 2025-01-13
-        owned_by: 'anthropic'
-      }
-    ]
+    const created = Math.floor(Date.now() / 1000)
+    let models = CLAUDE_MODELS.map((model) => ({
+      id: model.value,
+      object: 'model',
+      created,
+      owned_by: 'anthropic'
+    }))
 
     // 如果启用了模型限制，视为黑名单：过滤掉受限模型
     if (apiKeyData.enableModelRestriction && apiKeyData.restrictedModels?.length > 0) {
