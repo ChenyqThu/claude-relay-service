@@ -258,6 +258,9 @@ function getClaudeModelFamily(modelName) {
   if (m.includes('haiku')) {
     return 'haiku'
   }
+  if (m.includes('fable')) {
+    return 'fable'
+  }
 
   return null
 }

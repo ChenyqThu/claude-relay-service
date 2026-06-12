@@ -55,6 +55,17 @@ const countCacheControlBlocks = (body) => {
 }
 
 describe('claudeRelayService cache_control handling', () => {
+  it('treats known model-family 429 as model-level even without reset header', () => {
+    expect(claudeRelayService._shouldUseModelLevelRateLimit('opus', {}, null)).toBe(true)
+    expect(
+      claudeRelayService._shouldUseModelLevelRateLimit(
+        'opus',
+        { 'anthropic-ratelimit-unified-5h-status': 'rejected' },
+        null
+      )
+    ).toBe(false)
+  })
+
   it('defaults existing cache_control blocks to 1h TTL without adding new cache_control', () => {
     const processed = claudeRelayService._processRequestBody(
       {

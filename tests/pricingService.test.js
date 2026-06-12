@@ -48,8 +48,14 @@ describe('PricingService - Long Context Pricing', () => {
     'model-pricing',
     'model_prices_and_context_window.json'
   )
-  const pricingFilePath = realFs.existsSync(primaryPath) ? primaryPath : fallbackPath
-  const pricingData = JSON.parse(realFs.readFileSync(pricingFilePath, 'utf8'))
+  const fallbackPricingData = JSON.parse(realFs.readFileSync(fallbackPath, 'utf8'))
+  const primaryPricingData = realFs.existsSync(primaryPath)
+    ? JSON.parse(realFs.readFileSync(primaryPath, 'utf8'))
+    : {}
+  const pricingData = {
+    ...fallbackPricingData,
+    ...primaryPricingData
+  }
 
   beforeEach(() => {
     // 清除缓存的模块
@@ -171,6 +177,26 @@ describe('PricingService - Long Context Pricing', () => {
       expect(result.isLongContextRequest).toBe(false)
       expect(result.pricing.input).toBe(0.000003) // 基础价格 $3/MTok
       expect(result.pricing.output).toBe(0.000015) // 基础价格 $15/MTok
+    })
+
+    it('claude-fable-5 使用 Opus 价格的 2 倍，输出上限为 128K', () => {
+      const usage = {
+        input_tokens: 1000,
+        output_tokens: 100,
+        cache_creation_input_tokens: 10,
+        cache_read_input_tokens: 20
+      }
+
+      const pricing = pricingService.getModelPricing('claude-fable-5')
+      const result = pricingService.calculateCost(usage, 'claude-fable-5[1m]')
+
+      expect(pricing.max_tokens).toBe(128000)
+      expect(pricing.max_output_tokens).toBe(128000)
+      expect(result.pricing.input).toBe(0.00001)
+      expect(result.pricing.output).toBe(0.00005)
+      expect(result.pricing.cacheCreate).toBe(0.0000125)
+      expect(result.pricing.cacheRead).toBe(0.000001)
+      expect(result.pricing.ephemeral1h).toBe(0.00002)
     })
   })
 

@@ -54,6 +54,11 @@ const MODEL_RATE_LIMIT_FIELDS = {
     label: 'Haiku',
     rateLimitedAtField: 'haikuRateLimitedAt',
     rateLimitEndAtField: 'haikuRateLimitEndAt'
+  },
+  fable: {
+    label: 'Fable',
+    rateLimitedAtField: 'fableRateLimitedAt',
+    rateLimitEndAtField: 'fableRateLimitEndAt'
   }
 }
 
@@ -2731,6 +2736,8 @@ class ClaudeAccountService {
       delete updatedAccountData.sonnetRateLimitEndAt
       delete updatedAccountData.haikuRateLimitedAt
       delete updatedAccountData.haikuRateLimitEndAt
+      delete updatedAccountData.fableRateLimitedAt
+      delete updatedAccountData.fableRateLimitEndAt
       delete updatedAccountData.lastOverloadAt
 
       // 保存更新后的账户数据
@@ -2753,6 +2760,8 @@ class ClaudeAccountService {
         'sonnetRateLimitEndAt',
         'haikuRateLimitedAt',
         'haikuRateLimitEndAt',
+        'fableRateLimitedAt',
+        'fableRateLimitEndAt',
         'lastOverloadAt',
         // 新的独立标记
         'rateLimitAutoStopped',

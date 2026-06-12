@@ -60,6 +60,18 @@ describe('Claude account model-level rate limits', () => {
     expect(storedAccount.rateLimitAutoStopped).toBeUndefined()
   })
 
+  it('supports Fable model-family rate limit state independently', async () => {
+    const resetTimestamp = Math.floor(Date.now() / 1000) + 3600
+
+    await claudeAccountService.markAccountModelRateLimited('account-1', 'fable', resetTimestamp)
+
+    expect(storedAccount.fableRateLimitedAt).toEqual(expect.any(String))
+    expect(storedAccount.fableRateLimitEndAt).toBe(new Date(resetTimestamp * 1000).toISOString())
+    expect(storedAccount.opusRateLimitedAt).toBeUndefined()
+    expect(storedAccount.sonnetRateLimitedAt).toBeUndefined()
+    expect(storedAccount.haikuRateLimitedAt).toBeUndefined()
+  })
+
   it('checks and clears model families independently', async () => {
     const resetTimestamp = Math.floor(Date.now() / 1000) + 3600
     await claudeAccountService.markAccountModelRateLimited('account-1', 'sonnet', resetTimestamp)

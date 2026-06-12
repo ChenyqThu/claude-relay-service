@@ -103,7 +103,8 @@ class ClaudeRelayService {
 
     const modelLabel = {
       sonnet: 'Sonnet',
-      haiku: 'Haiku'
+      haiku: 'Haiku',
+      fable: 'Fable'
     }[modelFamily]
 
     if (!modelLabel) {
@@ -143,7 +144,7 @@ class ClaudeRelayService {
   }
 
   _shouldUseModelLevelRateLimit(modelFamily, headers, resetTimestamp) {
-    if (!modelFamily || !Number.isFinite(resetTimestamp)) {
+    if (!modelFamily) {
       return false
     }
 
@@ -159,7 +160,11 @@ class ClaudeRelayService {
     }
 
     logger.warn(
-      `🚫 ${context} Account ${accountId} hit ${modelFamily} model limit, resets at ${new Date(resetTimestamp * 1000).toISOString()}`
+      `🚫 ${context} Account ${accountId} hit ${modelFamily} model limit${
+        Number.isFinite(resetTimestamp)
+          ? `, resets at ${new Date(resetTimestamp * 1000).toISOString()}`
+          : ''
+      }`
     )
   }
 
