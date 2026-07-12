@@ -8,6 +8,7 @@ const unifiedClaudeScheduler = require('../scheduler/unifiedClaudeScheduler')
 const sessionHelper = require('../../utils/sessionHelper')
 const logger = require('../../utils/logger')
 const config = require('../../../config/config')
+const { stripLongContextSuffix, getRateLimitModelFamily } = require('../../utils/modelHelper')
 const claudeCodeHeadersService = require('../claudeCodeHeadersService')
 const redis = require('../../models/redis')
 const ClaudeCodeValidator = require('../../validators/clients/claudeCodeValidator')
@@ -18,7 +19,6 @@ const userMessageQueueService = require('../userMessageQueueService')
 const { isStreamWritable } = require('../../utils/streamHelper')
 const upstreamErrorHelper = require('../../utils/upstreamErrorHelper')
 const metadataUserIdHelper = require('../../utils/metadataUserIdHelper')
-const { stripLongContextSuffix, getClaudeModelFamily } = require('../../utils/modelHelper')
 const {
   getHttpsAgentForStream,
   getHttpsAgentForNonStream,
@@ -133,39 +133,6 @@ class ClaudeRelayService {
     const resetValue = Array.isArray(resetHeader) ? resetHeader[0] : resetHeader
     const parsedResetTimestamp = resetValue ? parseInt(resetValue, 10) : NaN
     return Number.isNaN(parsedResetTimestamp) ? null : parsedResetTimestamp
-  }
-
-  _getUnifiedFiveHourStatus(headers) {
-    const fiveHourStatus = this._getHeaderValueCaseInsensitive(
-      headers,
-      'anthropic-ratelimit-unified-5h-status'
-    )
-    return typeof fiveHourStatus === 'string' ? fiveHourStatus.toLowerCase() : null
-  }
-
-  _shouldUseModelLevelRateLimit(modelFamily, headers, _resetTimestamp) {
-    if (!modelFamily) {
-      return false
-    }
-
-    const fiveHourStatus = this._getUnifiedFiveHourStatus(headers)
-    return fiveHourStatus !== 'rejected'
-  }
-
-  async _markModelRateLimited(accountId, sessionHash, modelFamily, resetTimestamp, context) {
-    await claudeAccountService.markAccountModelRateLimited(accountId, modelFamily, resetTimestamp)
-
-    if (sessionHash) {
-      await unifiedClaudeScheduler.clearSessionMapping(sessionHash).catch(() => {})
-    }
-
-    logger.warn(
-      `🚫 ${context} Account ${accountId} hit ${modelFamily} model limit${
-        Number.isFinite(resetTimestamp)
-          ? `, resets at ${new Date(resetTimestamp * 1000).toISOString()}`
-          : ''
-      }`
-    )
   }
 
   // 🧾 提取错误消息文本
@@ -546,7 +513,9 @@ class ClaudeRelayService {
         requestedModel: requestBody.model
       })
 
-      const requestModelFamily = getClaudeModelFamily(requestBody?.model)
+      // 请求模型所属的限流家族（opus/sonnet/haiku/fable），决定 429 记入哪个限流桶
+      const requestModelFamily = getRateLimitModelFamily(requestBody?.model)
+      const isOpusModelRequest = requestModelFamily === 'opus'
 
       // 生成会话哈希用于sticky会话
       const sessionHash = sessionHelper.generateSessionHash(requestBody)
@@ -575,17 +544,16 @@ class ClaudeRelayService {
             accountId: error.accountId
           }
         }
-        if (error.code === 'CLAUDE_DEDICATED_MODEL_RATE_LIMITED') {
-          const limitMessage = this._buildModelLimitMessage(error.modelFamily, error.rateLimitEndAt)
+        if (error.code === 'CLAUDE_DEDICATED_UNAVAILABLE') {
           logger.warn(
-            `🚫 Dedicated account ${error.accountId} is ${error.modelFamily} rate limited for API key ${apiKeyData.name}, returning 403`
+            `🚫 Dedicated account ${error.accountId} is unavailable (${error.reason}) for API key ${apiKeyData.name}, returning 503`
           )
           return {
-            statusCode: 403,
+            statusCode: 503,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              error: this._getModelRateLimitErrorCode(error.modelFamily),
-              message: limitMessage
+              error: 'dedicated_account_unavailable',
+              message: `该 API Key 绑定的专属账号当前不可用（${error.reason}），请稍后重试。`
             }),
             accountId: error.accountId
           }
@@ -916,26 +884,19 @@ class ClaudeRelayService {
           } else {
             const parsedResetTimestamp = this._getRateLimitResetTimestamp(response.headers)
 
-            if (
-              this._shouldUseModelLevelRateLimit(
+            if (requestModelFamily && !Number.isNaN(parsedResetTimestamp)) {
+              // 模型级限额：只停用该模型家族，不改写为账号级限流
+              await claudeAccountService.markAccountModelRateLimited(
+                accountId,
                 requestModelFamily,
-                response.headers,
                 parsedResetTimestamp
               )
-            ) {
-              await this._markModelRateLimited(
-                accountId,
-                sessionHash,
-                requestModelFamily,
-                parsedResetTimestamp,
-                '[Non-Stream]'
+              logger.warn(
+                `🚫 Account ${accountId} hit ${requestModelFamily} limit, resets at ${new Date(parsedResetTimestamp * 1000).toISOString()}`
               )
 
-              if (isDedicatedOfficialAccount) {
-                const limitMessage = this._buildModelLimitMessage(
-                  requestModelFamily,
-                  parsedResetTimestamp
-                )
+              if (isOpusModelRequest && isDedicatedOfficialAccount) {
+                const limitMessage = this._buildOpusLimitMessage(parsedResetTimestamp)
                 return {
                   statusCode: 403,
                   headers: { 'Content-Type': 'application/json' },
@@ -2061,7 +2022,7 @@ class ClaudeRelayService {
         requestedModel: requestBody.model
       })
 
-      const requestModelFamily = getClaudeModelFamily(requestBody?.model)
+      const requestModelFamily = getRateLimitModelFamily(requestBody?.model)
 
       // 生成会话哈希用于sticky会话
       const sessionHash = sessionHelper.generateSessionHash(requestBody)
@@ -2090,16 +2051,18 @@ class ClaudeRelayService {
           responseStream.end()
           return
         }
-        if (error.code === 'CLAUDE_DEDICATED_MODEL_RATE_LIMITED') {
-          const limitMessage = this._buildModelLimitMessage(error.modelFamily, error.rateLimitEndAt)
+        if (error.code === 'CLAUDE_DEDICATED_UNAVAILABLE') {
+          logger.warn(
+            `🚫 [Stream] Dedicated account ${error.accountId} is unavailable (${error.reason}) for API key ${apiKeyData.name}, returning 503`
+          )
           if (!responseStream.headersSent) {
-            responseStream.status(403)
+            responseStream.status(503)
             responseStream.setHeader('Content-Type', 'application/json')
           }
           responseStream.write(
             JSON.stringify({
-              error: this._getModelRateLimitErrorCode(error.modelFamily),
-              message: limitMessage
+              error: 'dedicated_account_unavailable',
+              message: `该 API Key 绑定的专属账号当前不可用（${error.reason}），请稍后重试。`
             })
           )
           responseStream.end()
@@ -2330,7 +2293,9 @@ class ClaudeRelayService {
     // 获取账户信息用于统一 User-Agent
     const account = await claudeAccountService.getAccount(accountId)
 
-    const requestModelFamily = getClaudeModelFamily(body?.model)
+    // 请求模型所属的限流家族（opus/sonnet/haiku/fable），决定 429 记入哪个限流桶
+    const requestModelFamily = getRateLimitModelFamily(body?.model)
+    const isOpusModelRequest = requestModelFamily === 'opus'
 
     // 使用公共方法准备请求头和 payload
     const prepared = await this._prepareRequestHeadersAndPayload(
@@ -2433,25 +2398,21 @@ class ClaudeRelayService {
             // 真正的限流处理
             const parsedResetTimestamp = this._getRateLimitResetTimestamp(res.headers)
 
-            if (
-              this._shouldUseModelLevelRateLimit(
-                requestModelFamily,
-                res.headers,
-                parsedResetTimestamp
-              )
-            ) {
-              await this._markModelRateLimited(
-                accountId,
-                sessionHash,
-                requestModelFamily,
-                parsedResetTimestamp,
-                '[Stream]'
-              )
-              if (isDedicatedOfficialAccount) {
-                const limitMessage = this._buildModelLimitMessage(
+            if (requestModelFamily) {
+              if (!Number.isNaN(parsedResetTimestamp)) {
+                // 模型级限额：只停用该模型家族，不改写为账号级限流
+                await claudeAccountService.markAccountModelRateLimited(
+                  accountId,
                   requestModelFamily,
                   parsedResetTimestamp
                 )
+                logger.warn(
+                  `🚫 [Stream] Account ${accountId} hit ${requestModelFamily} limit, resets at ${new Date(parsedResetTimestamp * 1000).toISOString()}`
+                )
+              }
+
+              if (isOpusModelRequest && isDedicatedOfficialAccount) {
+                const limitMessage = this._buildOpusLimitMessage(parsedResetTimestamp)
                 if (!responseStream.headersSent) {
                   responseStream.status(403)
                   responseStream.setHeader('Content-Type', 'application/json')
@@ -3134,19 +3095,15 @@ class ClaudeRelayService {
           if (rateLimitDetected || res.statusCode === 429) {
             const parsedResetTimestamp = this._getRateLimitResetTimestamp(res.headers)
 
-            if (
-              this._shouldUseModelLevelRateLimit(
+            if (requestModelFamily && !Number.isNaN(parsedResetTimestamp)) {
+              // 模型级限额：只停用该模型家族，不改写为账号级限流
+              await claudeAccountService.markAccountModelRateLimited(
+                accountId,
                 requestModelFamily,
-                res.headers,
                 parsedResetTimestamp
               )
-            ) {
-              await this._markModelRateLimited(
-                accountId,
-                sessionHash,
-                requestModelFamily,
-                parsedResetTimestamp,
-                '[Stream]'
+              logger.warn(
+                `🚫 [Stream] Account ${accountId} hit ${requestModelFamily} limit, resets at ${new Date(parsedResetTimestamp * 1000).toISOString()}`
               )
             } else if (this._isAgentViewAuxiliaryRequest(body, clientHeaders)) {
               logger.warn(

@@ -3,7 +3,7 @@ const modelService = require('../src/services/modelService')
 const {
   getEffectiveModel,
   stripLongContextSuffix,
-  getClaudeModelFamily
+  getRateLimitModelFamily
 } = require('../src/utils/modelHelper')
 
 describe('models config', () => {
@@ -19,8 +19,8 @@ describe('models config', () => {
       }
     ])
     expect(CLAUDE_MODELS[3]).toEqual({
-      value: 'claude-sonnet-4-6',
-      label: 'Claude Sonnet 4.6'
+      value: 'claude-sonnet-5',
+      label: 'Claude Sonnet 5'
     })
   })
 
@@ -89,10 +89,10 @@ describe('models config', () => {
   })
 
   it('detects Claude model families for model-level scheduling limits', () => {
-    expect(getClaudeModelFamily('claude-fable-5[1m]')).toBe('fable')
-    expect(getClaudeModelFamily('claude-sonnet-4-6[1m]')).toBe('sonnet')
-    expect(getClaudeModelFamily('ccr,claude-opus-4-8')).toBe('opus')
-    expect(getClaudeModelFamily('us.anthropic.claude-3-5-haiku-20241022-v1:0')).toBe('haiku')
-    expect(getClaudeModelFamily('gpt-5.5')).toBeNull()
+    expect(getRateLimitModelFamily('claude-fable-5[1m]')).toBe('fable')
+    expect(getRateLimitModelFamily('claude-sonnet-4-6[1m]')).toBe('sonnet')
+    expect(getRateLimitModelFamily('ccr,claude-opus-4-8')).toBe('opus')
+    expect(getRateLimitModelFamily('us.anthropic.claude-3-5-haiku-20241022-v1:0')).toBe('haiku')
+    expect(getRateLimitModelFamily('gpt-5.5')).toBeNull()
   })
 })

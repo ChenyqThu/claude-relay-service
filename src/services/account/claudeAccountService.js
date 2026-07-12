@@ -17,7 +17,7 @@ const {
 const tokenRefreshService = require('../tokenRefreshService')
 const LRUCache = require('../../utils/lruCache')
 const { formatDateWithTimezone, getISOStringWithTimezone } = require('../../utils/dateHelper')
-const { isOpus45OrNewer } = require('../../utils/modelHelper')
+const { isOpus45OrNewer, RATE_LIMITED_MODEL_FAMILIES } = require('../../utils/modelHelper')
 const {
   parseBooleanLike,
   normalizeOptionalNonNegativeInteger,
@@ -37,29 +37,6 @@ function isProAccount(info) {
   }
   // Local configured account type
   return info.accountType === 'claude_pro'
-}
-
-const MODEL_RATE_LIMIT_FIELDS = {
-  opus: {
-    label: 'Opus',
-    rateLimitedAtField: 'opusRateLimitedAt',
-    rateLimitEndAtField: 'opusRateLimitEndAt'
-  },
-  sonnet: {
-    label: 'Sonnet',
-    rateLimitedAtField: 'sonnetRateLimitedAt',
-    rateLimitEndAtField: 'sonnetRateLimitEndAt'
-  },
-  haiku: {
-    label: 'Haiku',
-    rateLimitedAtField: 'haikuRateLimitedAt',
-    rateLimitEndAtField: 'haikuRateLimitEndAt'
-  },
-  fable: {
-    label: 'Fable',
-    rateLimitedAtField: 'fableRateLimitedAt',
-    rateLimitEndAtField: 'fableRateLimitEndAt'
-  }
 }
 
 class ClaudeAccountService {
@@ -573,13 +550,23 @@ class ClaudeAccountService {
       // 处理返回数据，移除敏感信息并添加限流状态和会话窗口信息
       const processedAccounts = await Promise.all(
         accounts.map(async (account) => {
-          const [rateLimitInfo, sessionWindowInfo, modelRateLimitStatus, isOverloaded] =
+          const [rateLimitInfo, sessionWindowInfo, modelRateLimitEntries, isOverloaded] =
             await Promise.all([
               this.getAccountRateLimitInfo(account.id),
               this.getSessionWindowInfo(account.id),
-              this.getAccountModelRateLimitStatuses(account.id, account),
+              Promise.all(
+                RATE_LIMITED_MODEL_FAMILIES.map(async (family) => [
+                  family,
+                  await this.getAccountModelRateLimitInfo(account.id, family, account)
+                ])
+              ),
               this.isAccountOverloaded(account.id)
             ])
+
+          // 各模型家族的独立限流状态（opus/sonnet/haiku/fable）
+          const modelRateLimitStatus = Object.fromEntries(modelRateLimitEntries)
+          const opusRateLimitStatus = modelRateLimitStatus.opus
+          const fableRateLimitStatus = modelRateLimitStatus.fable
 
           // 构建 Claude Usage 快照（从 Redis 读取）
           const claudeUsage = this.buildClaudeUsageSnapshot(account)
@@ -638,10 +625,10 @@ class ClaudeAccountService {
                 }
               : null,
             // Opus 专属限流状态（仅影响 Opus 模型路由）
-            opusRateLimitStatus: modelRateLimitStatus.opus,
-            // Sonnet 专属限流状态（仅影响 Sonnet 模型路由）
-            sonnetRateLimitStatus: modelRateLimitStatus.sonnet,
-            // 模型族专属限流状态（仅影响对应模型族路由）
+            opusRateLimitStatus,
+            // Fable 专属限流状态（仅影响 Fable 模型路由）
+            fableRateLimitStatus,
+            // 各模型家族的独立限流状态（opus/sonnet/haiku/fable）
             modelRateLimitStatus,
             // 过载状态（429/529 自动保护）
             overloadStatus: {
@@ -1515,254 +1502,214 @@ class ClaudeAccountService {
     }
   }
 
-  _getModelRateLimitConfig(modelFamily) {
-    const normalizedFamily = typeof modelFamily === 'string' ? modelFamily.trim().toLowerCase() : ''
-    const modelRateLimitConfig = MODEL_RATE_LIMIT_FIELDS[normalizedFamily]
-    if (!modelRateLimitConfig) {
-      throw new Error(`Unsupported Claude model family for rate limit: ${modelFamily}`)
-    }
-
+  // 🧩 按模型家族存储的限流字段名（沿用既有 opus/fable 字段名，向后兼容旧数据）
+  _modelRateLimitFields(family) {
     return {
-      modelFamily: normalizedFamily,
-      ...modelRateLimitConfig
+      atField: `${family}RateLimitedAt`,
+      endField: `${family}RateLimitEndAt`
     }
   }
 
-  _buildEmptyModelRateLimitStatus(modelFamily, modelRateLimitConfig) {
-    return {
-      modelFamily,
-      label: modelRateLimitConfig.label,
-      isRateLimited: false,
-      rateLimitedAt: null,
-      resetAt: null,
-      minutesRemaining: 0
-    }
-  }
-
-  // 🚫 标记账号的模型级限流状态（不影响其他模型调度）
-  async markAccountModelRateLimited(accountId, modelFamily, rateLimitResetTimestamp = null) {
+  // 🚫 标记账号在某个模型家族上的限流（仅影响该模型路由，不停用整个账号）
+  async markAccountModelRateLimited(accountId, family, rateLimitResetTimestamp = null) {
     try {
-      const modelRateLimitConfig = this._getModelRateLimitConfig(modelFamily)
       const accountData = await redis.getClaudeAccount(accountId)
       if (!accountData || Object.keys(accountData).length === 0) {
         throw new Error('Account not found')
       }
 
+      const { atField, endField } = this._modelRateLimitFields(family)
       const updatedAccountData = { ...accountData }
-      const now = new Date()
-      updatedAccountData[modelRateLimitConfig.rateLimitedAtField] = now.toISOString()
+      updatedAccountData[atField] = new Date().toISOString()
 
-      let resetTime = null
-      const parsedResetTimestamp = Number(rateLimitResetTimestamp)
-      if (Number.isFinite(parsedResetTimestamp) && parsedResetTimestamp > 0) {
-        resetTime = new Date(parsedResetTimestamp * 1000)
-      }
-
-      if (resetTime && !Number.isNaN(resetTime.getTime())) {
-        updatedAccountData[modelRateLimitConfig.rateLimitEndAtField] = resetTime.toISOString()
+      if (rateLimitResetTimestamp) {
+        const resetTime = new Date(rateLimitResetTimestamp * 1000)
+        updatedAccountData[endField] = resetTime.toISOString()
         logger.warn(
-          `🚫 Account ${accountData.name} (${accountId}) reached ${modelRateLimitConfig.label} limit, resets at ${resetTime.toISOString()}`
+          `🚫 Account ${accountData.name} (${accountId}) reached ${family} model cap, resets at ${resetTime.toISOString()}`
         )
       } else {
-        const fallbackResetTime = new Date(Date.now() + 60 * 60 * 1000)
-        updatedAccountData[modelRateLimitConfig.rateLimitEndAtField] =
-          fallbackResetTime.toISOString()
+        // 如果缺少准确时间戳，保留现有值但记录警告，便于后续人工干预
         logger.warn(
-          `⚠️ Account ${accountData.name} (${accountId}) reported ${modelRateLimitConfig.label} limit without reset timestamp, using 1 hour fallback`
+          `⚠️ Account ${accountData.name} (${accountId}) reported ${family} limit without reset timestamp`
         )
       }
 
       await redis.setClaudeAccount(accountId, updatedAccountData)
-      return {
-        success: true,
-        modelFamily: modelRateLimitConfig.modelFamily,
-        resetAt: updatedAccountData[modelRateLimitConfig.rateLimitEndAtField]
-      }
+      return { success: true }
     } catch (error) {
-      logger.error(`❌ Failed to mark ${modelFamily} rate limit for account: ${accountId}`, error)
+      logger.error(`❌ Failed to mark ${family} rate limit for account: ${accountId}`, error)
       throw error
     }
   }
 
-  // ✅ 清除账号的模型级限流状态
-  async clearAccountModelRateLimit(accountId, modelFamily) {
+  // ✅ 清除账号在某个模型家族上的限流状态
+  async clearAccountModelRateLimit(accountId, family) {
     try {
-      const modelRateLimitConfig = this._getModelRateLimitConfig(modelFamily)
       const accountData = await redis.getClaudeAccount(accountId)
       if (!accountData || Object.keys(accountData).length === 0) {
         return { success: true }
       }
 
+      const { atField, endField } = this._modelRateLimitFields(family)
       const updatedAccountData = { ...accountData }
-      delete updatedAccountData[modelRateLimitConfig.rateLimitedAtField]
-      delete updatedAccountData[modelRateLimitConfig.rateLimitEndAtField]
+      delete updatedAccountData[atField]
+      delete updatedAccountData[endField]
 
       await redis.setClaudeAccount(accountId, updatedAccountData)
 
       const redisKey = `claude:account:${accountId}`
       if (redis.client && typeof redis.client.hdel === 'function') {
-        await redis.client.hdel(
-          redisKey,
-          modelRateLimitConfig.rateLimitedAtField,
-          modelRateLimitConfig.rateLimitEndAtField
-        )
+        await redis.client.hdel(redisKey, atField, endField)
       }
 
-      logger.info(
-        `✅ Cleared ${modelRateLimitConfig.label} rate limit state for account ${accountId}`
-      )
+      logger.info(`✅ Cleared ${family} rate limit state for account ${accountId}`)
       return { success: true }
     } catch (error) {
-      logger.error(`❌ Failed to clear ${modelFamily} rate limit for account: ${accountId}`, error)
+      logger.error(`❌ Failed to clear ${family} rate limit for account: ${accountId}`, error)
       throw error
     }
   }
 
-  // 📊 获取账号模型级限流信息（自动清理过期状态）
-  async getAccountModelRateLimitInfo(accountId, modelFamily, accountData = null) {
-    const modelRateLimitConfig = this._getModelRateLimitConfig(modelFamily)
+  // 📊 获取账号在某个模型家族上的限流信息（自动清理过期状态）
+  async getAccountModelRateLimitInfo(accountId, family, accountData = null) {
     try {
+      const { atField, endField } = this._modelRateLimitFields(family)
       const data = accountData || (await redis.getClaudeAccount(accountId))
-      if (
-        !data ||
-        Object.keys(data).length === 0 ||
-        !data[modelRateLimitConfig.rateLimitEndAtField]
-      ) {
-        return this._buildEmptyModelRateLimitStatus(
-          modelRateLimitConfig.modelFamily,
-          modelRateLimitConfig
-        )
+      if (!data || Object.keys(data).length === 0 || !data[endField]) {
+        return { isRateLimited: false, rateLimitedAt: null, resetAt: null, minutesRemaining: 0 }
       }
 
-      const resetAt = data[modelRateLimitConfig.rateLimitEndAtField]
-      const resetAtMs = Date.parse(resetAt)
+      const resetAtMs = Date.parse(data[endField])
       if (Number.isNaN(resetAtMs)) {
-        await this.clearAccountModelRateLimit(accountId, modelRateLimitConfig.modelFamily).catch(
-          () => {}
-        )
-        return this._buildEmptyModelRateLimitStatus(
-          modelRateLimitConfig.modelFamily,
-          modelRateLimitConfig
-        )
+        return {
+          isRateLimited: false,
+          rateLimitedAt: data[atField] || null,
+          resetAt: null,
+          minutesRemaining: 0
+        }
       }
 
       const nowMs = Date.now()
       if (nowMs >= resetAtMs) {
         // 自动清理过期标记，避免前端持续显示陈旧状态
-        await this.clearAccountModelRateLimit(accountId, modelRateLimitConfig.modelFamily).catch(
-          () => {}
-        )
+        await this.clearAccountModelRateLimit(accountId, family).catch(() => {})
         return {
-          modelFamily: modelRateLimitConfig.modelFamily,
-          label: modelRateLimitConfig.label,
           isRateLimited: false,
-          rateLimitedAt: data[modelRateLimitConfig.rateLimitedAtField] || null,
-          resetAt,
+          rateLimitedAt: data[atField] || null,
+          resetAt: data[endField],
           minutesRemaining: 0
         }
       }
 
       return {
-        modelFamily: modelRateLimitConfig.modelFamily,
-        label: modelRateLimitConfig.label,
         isRateLimited: true,
-        rateLimitedAt: data[modelRateLimitConfig.rateLimitedAtField] || null,
-        resetAt,
+        rateLimitedAt: data[atField] || null,
+        resetAt: data[endField],
         minutesRemaining: Math.max(0, Math.ceil((resetAtMs - nowMs) / (1000 * 60)))
       }
     } catch (error) {
-      logger.error(
-        `❌ Failed to get ${modelFamily} rate limit info for account: ${accountId}`,
-        error
-      )
-      return this._buildEmptyModelRateLimitStatus(
-        modelRateLimitConfig.modelFamily,
-        modelRateLimitConfig
-      )
+      logger.error(`❌ Failed to get ${family} rate limit info for account: ${accountId}`, error)
+      return { isRateLimited: false, rateLimitedAt: null, resetAt: null, minutesRemaining: 0 }
     }
   }
 
-  // 🔍 检查账号是否处于模型级限流状态（自动清理过期标记）
-  async isAccountModelRateLimited(accountId, modelFamily) {
+  // 🔍 检查账号在某个模型家族上是否处于限流状态（自动清理过期标记）
+  async isAccountModelRateLimited(accountId, family) {
     try {
-      const status = await this.getAccountModelRateLimitInfo(accountId, modelFamily)
-      return !!status.isRateLimited
+      const { endField } = this._modelRateLimitFields(family)
+      const accountData = await redis.getClaudeAccount(accountId)
+      if (!accountData || Object.keys(accountData).length === 0 || !accountData[endField]) {
+        return false
+      }
+
+      const resetTime = new Date(accountData[endField])
+      if (Number.isNaN(resetTime.getTime()) || new Date() >= resetTime) {
+        await this.clearAccountModelRateLimit(accountId, family)
+        return false
+      }
+
+      return true
     } catch (error) {
       logger.error(
-        `❌ Failed to check ${modelFamily} rate limit status for account: ${accountId}`,
+        `❌ Failed to check ${family} rate limit status for account: ${accountId}`,
         error
       )
       return false
     }
   }
 
-  // ♻️ 检查并清理已过期的模型级限流标记
-  async clearExpiredModelRateLimit(accountId, modelFamily) {
+  // ♻️ 检查并清理已过期的模型家族限流标记
+  async clearExpiredModelRateLimit(accountId, family) {
     try {
-      await this.getAccountModelRateLimitInfo(accountId, modelFamily)
+      const { endField } = this._modelRateLimitFields(family)
+      const accountData = await redis.getClaudeAccount(accountId)
+      if (!accountData || Object.keys(accountData).length === 0 || !accountData[endField]) {
+        return { success: true }
+      }
+
+      const resetTime = new Date(accountData[endField])
+      if (Number.isNaN(resetTime.getTime()) || new Date() >= resetTime) {
+        await this.clearAccountModelRateLimit(accountId, family)
+      }
+
       return { success: true }
     } catch (error) {
       logger.error(
-        `❌ Failed to clear expired ${modelFamily} rate limit for account: ${accountId}`,
+        `❌ Failed to clear expired ${family} rate limit for account: ${accountId}`,
         error
       )
       throw error
     }
   }
 
-  async getAccountModelRateLimitStatuses(accountId, accountData = null) {
-    const statuses = {}
-    await Promise.all(
-      Object.keys(MODEL_RATE_LIMIT_FIELDS).map(async (modelFamily) => {
-        statuses[modelFamily] = await this.getAccountModelRateLimitInfo(
-          accountId,
-          modelFamily,
-          accountData
-        )
-      })
-    )
-    return statuses
-  }
+  // ---- 以下为按模型家族限流的兼容封装：保持既有调用方与 Redis 字段名不变 ----
 
-  // 🚫 兼容旧调用：标记账号的 Opus 限流状态（不影响其他模型调度）
+  // 🚫 标记账号的 Opus 限流状态（不影响其他模型调度）
   async markAccountOpusRateLimited(accountId, rateLimitResetTimestamp = null) {
     return this.markAccountModelRateLimited(accountId, 'opus', rateLimitResetTimestamp)
   }
 
-  async markAccountSonnetRateLimited(accountId, rateLimitResetTimestamp = null) {
-    return this.markAccountModelRateLimited(accountId, 'sonnet', rateLimitResetTimestamp)
-  }
-
+  // ✅ 清除账号的 Opus 限流状态
   async clearAccountOpusRateLimit(accountId) {
     return this.clearAccountModelRateLimit(accountId, 'opus')
-  }
-
-  async clearAccountSonnetRateLimit(accountId) {
-    return this.clearAccountModelRateLimit(accountId, 'sonnet')
   }
 
   async getAccountOpusRateLimitInfo(accountId, accountData = null) {
     return this.getAccountModelRateLimitInfo(accountId, 'opus', accountData)
   }
 
-  async getAccountSonnetRateLimitInfo(accountId, accountData = null) {
-    return this.getAccountModelRateLimitInfo(accountId, 'sonnet', accountData)
-  }
-
   async isAccountOpusRateLimited(accountId) {
     return this.isAccountModelRateLimited(accountId, 'opus')
-  }
-
-  async isAccountSonnetRateLimited(accountId) {
-    return this.isAccountModelRateLimited(accountId, 'sonnet')
   }
 
   async clearExpiredOpusRateLimit(accountId) {
     return this.clearExpiredModelRateLimit(accountId, 'opus')
   }
 
-  async clearExpiredSonnetRateLimit(accountId) {
-    return this.clearExpiredModelRateLimit(accountId, 'sonnet')
+  // 🚫 标记账号的 Fable 限流状态（不影响其他模型调度）
+  async markAccountFableRateLimited(accountId, rateLimitResetTimestamp = null) {
+    return this.markAccountModelRateLimited(accountId, 'fable', rateLimitResetTimestamp)
+  }
+
+  // ✅ 清除账号的 Fable 限流状态
+  async clearAccountFableRateLimit(accountId) {
+    return this.clearAccountModelRateLimit(accountId, 'fable')
+  }
+
+  // 📊 获取账号 Fable 限流信息（自动清理过期状态）
+  async getAccountFableRateLimitInfo(accountId, accountData = null) {
+    return this.getAccountModelRateLimitInfo(accountId, 'fable', accountData)
+  }
+
+  // 🔍 检查账号是否处于 Fable 限流状态（自动清理过期标记）
+  async isAccountFableRateLimited(accountId) {
+    return this.isAccountModelRateLimited(accountId, 'fable')
+  }
+
+  // ♻️ 检查并清理已过期的 Fable 限流标记
+  async clearExpiredFableRateLimit(accountId) {
+    return this.clearExpiredModelRateLimit(accountId, 'fable')
   }
 
   // ✅ 移除账号的限流状态
@@ -2718,14 +2665,11 @@ class ClaudeAccountService {
       delete updatedAccountData.tempErrorAt
       delete updatedAccountData.sessionWindowStart
       delete updatedAccountData.sessionWindowEnd
-      delete updatedAccountData.opusRateLimitedAt
-      delete updatedAccountData.opusRateLimitEndAt
-      delete updatedAccountData.sonnetRateLimitedAt
-      delete updatedAccountData.sonnetRateLimitEndAt
-      delete updatedAccountData.haikuRateLimitedAt
-      delete updatedAccountData.haikuRateLimitEndAt
-      delete updatedAccountData.fableRateLimitedAt
-      delete updatedAccountData.fableRateLimitEndAt
+      for (const family of RATE_LIMITED_MODEL_FAMILIES) {
+        const { atField, endField } = this._modelRateLimitFields(family)
+        delete updatedAccountData[atField]
+        delete updatedAccountData[endField]
+      }
       delete updatedAccountData.lastOverloadAt
 
       // 保存更新后的账户数据
@@ -2742,14 +2686,10 @@ class ClaudeAccountService {
         'tempErrorAt',
         'sessionWindowStart',
         'sessionWindowEnd',
-        'opusRateLimitedAt',
-        'opusRateLimitEndAt',
-        'sonnetRateLimitedAt',
-        'sonnetRateLimitEndAt',
-        'haikuRateLimitedAt',
-        'haikuRateLimitEndAt',
-        'fableRateLimitedAt',
-        'fableRateLimitEndAt',
+        ...RATE_LIMITED_MODEL_FAMILIES.flatMap((family) => [
+          `${family}RateLimitedAt`,
+          `${family}RateLimitEndAt`
+        ]),
         'lastOverloadAt',
         // 新的独立标记
         'rateLimitAutoStopped',

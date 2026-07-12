@@ -238,31 +238,31 @@ function isClaudeFamilyModel(modelName) {
   return false
 }
 
-function getClaudeModelFamily(modelName) {
+/**
+ * 参与「按模型独立限流」的模型家族。
+ *
+ * Anthropic 对这些模型分别下发独立的（通常是周级）限额：命中其中一个的 429，
+ * 只代表该模型不可用，不代表整个账号耗尽配额。因此必须记入该家族专属的限流桶，
+ * 而不能改写为账号级限流（那会把账号上的其它模型一并停掉）。
+ */
+const RATE_LIMITED_MODEL_FAMILIES = ['opus', 'sonnet', 'haiku', 'fable']
+
+/**
+ * 解析模型名所属的限流家族（会先去除 vendor 前缀）。
+ * @param {string} modelName - 模型名，如 claude-sonnet-4-5
+ * @returns {string|null} - 'opus' | 'sonnet' | 'haiku' | 'fable'，无法识别时返回 null
+ */
+function getRateLimitModelFamily(modelName) {
   if (!modelName || typeof modelName !== 'string') {
     return null
   }
 
-  const { baseModel } = parseVendorPrefixedModel(modelName)
-  const m = (stripLongContextSuffix(baseModel) || '').trim().toLowerCase()
-  if (!m) {
+  const baseModel = (getEffectiveModel(modelName) || '').toLowerCase()
+  if (!baseModel) {
     return null
   }
 
-  if (m.includes('opus')) {
-    return 'opus'
-  }
-  if (m.includes('sonnet')) {
-    return 'sonnet'
-  }
-  if (m.includes('haiku')) {
-    return 'haiku'
-  }
-  if (m.includes('fable')) {
-    return 'fable'
-  }
-
-  return null
+  return RATE_LIMITED_MODEL_FAMILIES.find((family) => baseModel.includes(family)) || null
 }
 
 module.exports = {
@@ -273,5 +273,6 @@ module.exports = {
   getVendorType,
   isOpus45OrNewer,
   isClaudeFamilyModel,
-  getClaudeModelFamily
+  RATE_LIMITED_MODEL_FAMILIES,
+  getRateLimitModelFamily
 }
