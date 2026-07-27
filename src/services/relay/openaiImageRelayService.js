@@ -22,9 +22,9 @@ const DEFAULT_IMAGES_MAIN_MODEL = 'gpt-5.4-mini'
 const DEFAULT_IMAGES_TOOL_MODEL = 'gpt-image-2'
 const DEFAULT_RESPONSE_FORMAT = 'b64_json'
 const CODEX_IMAGES_ENDPOINT = 'https://chatgpt.com/backend-api/codex/responses'
-const CODEX_IMAGE_USER_AGENT =
-  'codex-tui/0.118.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.9 (codex-tui; 0.118.0)'
-const CODEX_IMAGE_ORIGINATOR = 'codex-tui'
+const CODEX_IMAGE_VERSION = '0.144.5'
+const CODEX_IMAGE_USER_AGENT = `codex_cli_rs/${CODEX_IMAGE_VERSION}`
+const CODEX_IMAGE_ORIGINATOR = 'codex_cli_rs'
 const MAX_IMAGE_FORM_BYTES = 100 * 1024 * 1024
 
 class ImageRequestError extends Error {
@@ -111,6 +111,20 @@ function parseInteger(value) {
   return Number.isFinite(num) ? Math.trunc(num) : null
 }
 
+function normalizeImageCount(value) {
+  const first = firstValue(value)
+  if (first === undefined || first === null || first === '') {
+    return 1
+  }
+
+  const count = Number(first)
+  if (!Number.isInteger(count) || count < 1 || count > 10) {
+    throw new ImageRequestError(400, 'Invalid request: n must be an integer between 1 and 10')
+  }
+
+  return count
+}
+
 function normalizeResponseFormat(value) {
   const format = toTrimmedString(value).toLowerCase()
   return format || DEFAULT_RESPONSE_FORMAT
@@ -189,10 +203,18 @@ function extractImageURLsFromJSON(body = {}) {
 }
 
 function buildImageTool(action, source = {}, maskImageURL = null) {
+  const model = toTrimmedString(source.model) || DEFAULT_IMAGES_TOOL_MODEL
+  if (!/^gpt-image-/i.test(model)) {
+    throw new ImageRequestError(
+      400,
+      `Invalid request: images endpoint requires a gpt-image-* model, got "${model}"`
+    )
+  }
+
   const tool = {
     type: 'image_generation',
     action,
-    model: toTrimmedString(source.model) || DEFAULT_IMAGES_TOOL_MODEL
+    model
   }
 
   const stringFields = [
@@ -216,6 +238,11 @@ function buildImageTool(action, source = {}, maskImageURL = null) {
       tool[field] = value
     }
   })
+
+  const count = normalizeImageCount(source.n)
+  if (count !== 1) {
+    tool.n = count
+  }
 
   if (maskImageURL) {
     tool.input_image_mask = {
@@ -679,6 +706,14 @@ class OpenAIImageRelayService {
         return await this._handleCodexErrorResponse(req, res, context, upstream)
       }
 
+      try {
+        if (await unifiedOpenAIScheduler.isAccountRateLimited(context.accountId)) {
+          await unifiedOpenAIScheduler.removeAccountRateLimit(context.accountId, 'openai')
+        }
+      } catch (error) {
+        logger.warn('Failed to clear OpenAI image account rate limit after success:', error)
+      }
+
       if (requestPayload.stream) {
         return await this._streamImagesFromResponses(req, res, context, upstream, requestPayload)
       }
@@ -756,6 +791,7 @@ class OpenAIImageRelayService {
     headers['content-type'] = 'application/json'
     headers['user-agent'] = CODEX_IMAGE_USER_AGENT
     headers.originator = incoming.originator || incoming.Originator || CODEX_IMAGE_ORIGINATOR
+    headers.version = headers.version || CODEX_IMAGE_VERSION
     headers.connection = 'Keep-Alive'
     headers.session_id = incoming.session_id || incoming.Session_id || crypto.randomUUID()
 
@@ -1261,6 +1297,7 @@ const service = new OpenAIImageRelayService()
 
 service.DEFAULT_IMAGES_MAIN_MODEL = DEFAULT_IMAGES_MAIN_MODEL
 service.DEFAULT_IMAGES_TOOL_MODEL = DEFAULT_IMAGES_TOOL_MODEL
+service.CODEX_IMAGE_VERSION = CODEX_IMAGE_VERSION
 service.CODEX_IMAGE_USER_AGENT = CODEX_IMAGE_USER_AGENT
 service.CODEX_IMAGE_ORIGINATOR = CODEX_IMAGE_ORIGINATOR
 service.buildImagesResponsesRequest = buildImagesResponsesRequest

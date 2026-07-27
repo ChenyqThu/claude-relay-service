@@ -1154,8 +1154,10 @@ const handleImageRequest = async (req, res, action) => {
 const handleImageGeneration = async (req, res) => handleImageRequest(req, res, 'generate')
 const handleImageEdit = async (req, res) => handleImageRequest(req, res, 'edit')
 
-// 注册两个路由路径，都使用相同的处理函数
+// 同时支持 base URL 含 /v1 和不含 /v1 的 OpenAI 客户端
+router.post('/images/generations', authenticateApiKey, handleImageGeneration)
 router.post('/v1/images/generations', authenticateApiKey, handleImageGeneration)
+router.post('/images/edits', authenticateApiKey, handleImageEdit)
 router.post('/v1/images/edits', authenticateApiKey, handleImageEdit)
 router.post('/responses', authenticateApiKey, handleResponses)
 router.post('/v1/responses', authenticateApiKey, handleResponses)

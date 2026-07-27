@@ -1,8 +1,11 @@
 const crypto = require('crypto')
 
+const registeredPostPaths = []
 const mockRouter = {
   get: jest.fn(),
-  post: jest.fn()
+  post: jest.fn((path) => {
+    registeredPostPaths.push(path)
+  })
 }
 
 jest.mock(
@@ -147,6 +150,17 @@ describe('openai image routes', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     openaiAccountService.decrypt.mockReturnValue('decrypted-token')
+  })
+
+  test('registers versioned and unversioned image endpoints', () => {
+    expect(registeredPostPaths).toEqual(
+      expect.arrayContaining([
+        '/images/generations',
+        '/v1/images/generations',
+        '/images/edits',
+        '/v1/images/edits'
+      ])
+    )
   })
 
   test('selects an image-capable OpenAI account and dispatches image generations', async () => {

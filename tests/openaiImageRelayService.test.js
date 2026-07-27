@@ -23,7 +23,9 @@ jest.mock('../src/services/account/openaiResponsesAccountService', () => ({
 
 jest.mock('../src/services/scheduler/unifiedOpenAIScheduler', () => ({
   markAccountRateLimited: jest.fn(),
-  markAccountUnauthorized: jest.fn()
+  markAccountUnauthorized: jest.fn(),
+  isAccountRateLimited: jest.fn().mockResolvedValue(false),
+  removeAccountRateLimit: jest.fn()
 }))
 
 jest.mock('../src/utils/rateLimitHelper', () => ({
@@ -53,7 +55,8 @@ describe('openaiImageRelayService helpers', () => {
         quality: 'high',
         output_format: 'webp',
         output_compression: 80,
-        partial_images: 2
+        partial_images: 2,
+        n: 2
       }
     })
 
@@ -76,9 +79,35 @@ describe('openaiImageRelayService helpers', () => {
         quality: 'high',
         output_format: 'webp',
         output_compression: 80,
-        partial_images: 2
+        partial_images: 2,
+        n: 2
       }
     ])
+  })
+
+  test.each([0, 11, 1.5, 'many'])('rejects invalid image count %p', (n) => {
+    expect(() =>
+      openaiImageRelayService.buildImagesResponsesRequest({
+        prompt: 'draw a launch screen',
+        action: 'generate',
+        source: {
+          model: 'gpt-image-2',
+          n
+        }
+      })
+    ).toThrow('n must be an integer between 1 and 10')
+  })
+
+  test('rejects non-image models for the Codex image tool', () => {
+    expect(() =>
+      openaiImageRelayService.buildImagesResponsesRequest({
+        prompt: 'draw a launch screen',
+        action: 'generate',
+        source: {
+          model: 'gpt-5.4-mini'
+        }
+      })
+    ).toThrow('images endpoint requires a gpt-image-* model')
   })
 
   test('builds Codex Responses payload for image edits with image and mask inputs', () => {
@@ -209,7 +238,7 @@ describe('openaiImageRelayService helpers', () => {
     })
   })
 
-  test('builds Codex image headers that match the Codex TUI route', () => {
+  test('builds Codex image headers that match the upstream Codex CLI route', () => {
     const headers = openaiImageRelayService._buildCodexHeaders(
       {
         headers: {
@@ -231,8 +260,29 @@ describe('openaiImageRelayService helpers', () => {
     expect(headers['chatgpt-account-id']).toBe('chatgpt-account-id')
     expect(headers['user-agent']).toBe(openaiImageRelayService.CODEX_IMAGE_USER_AGENT)
     expect(headers.originator).toBe('custom-originator')
+    expect(headers.version).toBe('1')
     expect(headers.connection).toBe('Keep-Alive')
     expect(headers.session_id).toEqual(expect.any(String))
     expect(headers['x-client-request-id']).toEqual(expect.any(String))
+  })
+
+  test('uses upstream Codex CLI defaults when client headers are absent', () => {
+    const headers = openaiImageRelayService._buildCodexHeaders(
+      {
+        headers: {}
+      },
+      {
+        accessToken: 'access-token',
+        accountId: 'account-1',
+        account: {}
+      },
+      true
+    )
+
+    expect(headers['user-agent']).toBe(
+      `codex_cli_rs/${openaiImageRelayService.CODEX_IMAGE_VERSION}`
+    )
+    expect(headers.originator).toBe('codex_cli_rs')
+    expect(headers.version).toBe(openaiImageRelayService.CODEX_IMAGE_VERSION)
   })
 })
