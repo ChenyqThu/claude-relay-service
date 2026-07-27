@@ -2117,7 +2117,7 @@ class ClaudeAccountService {
           accountId,
           fiveHour: response.data.five_hour?.utilization,
           sevenDay: response.data.seven_day?.utilization,
-          sevenDayOpus: response.data.seven_day_sonnet?.utilization
+          sevenDayScoped: this._extractScopedWeeklyLimit(response.data)?.utilization
         })
 
         return response.data
@@ -2143,6 +2143,33 @@ class ClaudeAccountService {
     }
   }
 
+  // 🧩 提取 7 天模型专属窗口（新版通过 limits[] 下发，如 Fable；兼容旧版 seven_day_* 字段）
+  _extractScopedWeeklyLimit(usageData) {
+    const scopedLimit = Array.isArray(usageData?.limits)
+      ? usageData.limits.find((limit) => limit?.kind === 'weekly_scoped' && limit.scope?.model)
+      : null
+
+    if (scopedLimit && scopedLimit.percent !== undefined && scopedLimit.percent !== null) {
+      return {
+        utilization: scopedLimit.percent,
+        resetsAt: scopedLimit.resets_at || '',
+        label: scopedLimit.scope.model.display_name || ''
+      }
+    }
+
+    const legacyLabel = usageData?.seven_day_sonnet ? 'Sonnet' : 'Opus'
+    const legacyLimit = usageData?.seven_day_sonnet || usageData?.seven_day_opus
+    if (legacyLimit && legacyLimit.utilization !== undefined && legacyLimit.utilization !== null) {
+      return {
+        utilization: legacyLimit.utilization,
+        resetsAt: legacyLimit.resets_at || '',
+        label: legacyLabel
+      }
+    }
+
+    return null
+  }
+
   // 📊 构建 Claude Usage 快照（从 Redis 数据）
   buildClaudeUsageSnapshot(accountData) {
     const updatedAt = accountData.claudeUsageUpdatedAt
@@ -2153,6 +2180,7 @@ class ClaudeAccountService {
     const sevenDayResetsAt = accountData.claudeSevenDayResetsAt
     const sevenDayOpusUtilization = this._toNumberOrNull(accountData.claudeSevenDayOpusUtilization)
     const sevenDayOpusResetsAt = accountData.claudeSevenDayOpusResetsAt
+    const sevenDayOpusLabel = accountData.claudeSevenDayScopedLabel || null
 
     const hasFiveHourData = fiveHourUtilization !== null || fiveHourResetsAt
     const hasSevenDayData = sevenDayUtilization !== null || sevenDayResetsAt
@@ -2183,6 +2211,7 @@ class ClaudeAccountService {
       sevenDayOpus: {
         utilization: sevenDayOpusUtilization,
         resetsAt: sevenDayOpusResetsAt,
+        label: sevenDayOpusLabel,
         remainingSeconds: sevenDayOpusResetsAt
           ? Math.max(0, Math.floor((new Date(sevenDayOpusResetsAt).getTime() - now) / 1000))
           : null
@@ -2218,15 +2247,11 @@ class ClaudeAccountService {
       }
     }
 
-    // 7天Opus窗口
-    if (usageData.seven_day_sonnet) {
-      if (usageData.seven_day_sonnet.utilization !== undefined) {
-        updates.claudeSevenDayOpusUtilization = String(usageData.seven_day_sonnet.utilization)
-      }
-      if (usageData.seven_day_sonnet.resets_at) {
-        updates.claudeSevenDayOpusResetsAt = usageData.seven_day_sonnet.resets_at
-      }
-    }
+    // 7天模型专属窗口（字段名沿用历史的 Opus 命名，向后兼容旧数据）
+    const scopedWeekly = this._extractScopedWeeklyLimit(usageData)
+    updates.claudeSevenDayOpusUtilization = scopedWeekly ? String(scopedWeekly.utilization) : ''
+    updates.claudeSevenDayOpusResetsAt = scopedWeekly ? scopedWeekly.resetsAt : ''
+    updates.claudeSevenDayScopedLabel = scopedWeekly ? scopedWeekly.label : ''
 
     if (Object.keys(updates).length === 0) {
       return

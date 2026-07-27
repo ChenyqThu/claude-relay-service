@@ -1,4 +1,5 @@
 const { CLAUDE_MODELS, OPENAI_MODELS } = require('../config/models')
+const fallbackModelPricing = require('../resources/model-pricing/model_prices_and_context_window.json')
 const modelService = require('../src/services/modelService')
 const {
   getEffectiveModel,
@@ -7,8 +8,18 @@ const {
 } = require('../src/utils/modelHelper')
 
 describe('models config', () => {
-  it('places Claude Fable 5 at the top of Claude model options', () => {
+  it('places Claude Opus 5 at the top of Claude model options', () => {
     expect(CLAUDE_MODELS.slice(0, 2)).toEqual([
+      {
+        value: 'claude-opus-5',
+        label: 'Claude Opus 5'
+      },
+      {
+        value: 'claude-opus-5[1m]',
+        label: 'Claude Opus 5 (1M)'
+      }
+    ])
+    expect(CLAUDE_MODELS.slice(2, 4)).toEqual([
       {
         value: 'claude-fable-5',
         label: 'Claude Fable 5'
@@ -18,7 +29,7 @@ describe('models config', () => {
         label: 'Claude Fable 5 (1M)'
       }
     ])
-    expect(CLAUDE_MODELS[3]).toEqual({
+    expect(CLAUDE_MODELS[5]).toEqual({
       value: 'claude-sonnet-5',
       label: 'Claude Sonnet 5'
     })
@@ -27,6 +38,8 @@ describe('models config', () => {
   it('includes the latest Claude Opus and OpenAI models', () => {
     expect(CLAUDE_MODELS.map((model) => model.value)).toEqual(
       expect.arrayContaining([
+        'claude-opus-5',
+        'claude-opus-5[1m]',
         'claude-fable-5',
         'claude-fable-5[1m]',
         'claude-opus-4-7',
@@ -48,6 +61,8 @@ describe('models config', () => {
 
     expect(apiModelIds).toEqual(
       expect.arrayContaining([
+        'claude-opus-5',
+        'claude-opus-5[1m]',
         'claude-fable-5',
         'claude-fable-5[1m]',
         'claude-opus-4-7',
@@ -59,6 +74,14 @@ describe('models config', () => {
         'gpt-image-2'
       ])
     )
+    expect(apiModels.find((model) => model.id === 'claude-opus-5')).toMatchObject({
+      max_input_tokens: 1000000,
+      max_tokens: 128000
+    })
+    expect(apiModels.find((model) => model.id === 'claude-opus-5[1m]')).toMatchObject({
+      max_input_tokens: 1000000,
+      max_tokens: 128000
+    })
     expect(apiModels.find((model) => model.id === 'claude-opus-4-8[1m]')).toMatchObject({
       max_input_tokens: 1000000,
       max_tokens: 128000
@@ -81,7 +104,20 @@ describe('models config', () => {
     })
   })
 
+  it('prices Claude Opus 5 at the official standard and fast-mode rates', () => {
+    expect(fallbackModelPricing['claude-opus-5']).toMatchObject({
+      input_cost_per_token: 0.000005,
+      output_cost_per_token: 0.000025,
+      cache_creation_input_token_cost: 0.00000625,
+      cache_read_input_token_cost: 0.0000005,
+      provider_specific_entry: {
+        fast: 2
+      }
+    })
+  })
+
   it('normalizes Claude Code 1M model variants before scheduling and forwarding', () => {
+    expect(stripLongContextSuffix('claude-opus-5[1m]')).toBe('claude-opus-5')
     expect(stripLongContextSuffix('claude-fable-5[1m]')).toBe('claude-fable-5')
     expect(stripLongContextSuffix('claude-opus-4-8[1m]')).toBe('claude-opus-4-8')
     expect(stripLongContextSuffix('claude-opus-4-7[1m]')).toBe('claude-opus-4-7')
@@ -89,6 +125,7 @@ describe('models config', () => {
   })
 
   it('detects Claude model families for model-level scheduling limits', () => {
+    expect(getRateLimitModelFamily('claude-opus-5[1m]')).toBe('opus')
     expect(getRateLimitModelFamily('claude-fable-5[1m]')).toBe('fable')
     expect(getRateLimitModelFamily('claude-sonnet-4-6[1m]')).toBe('sonnet')
     expect(getRateLimitModelFamily('ccr,claude-opus-4-8')).toBe('opus')

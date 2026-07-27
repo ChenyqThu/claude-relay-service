@@ -161,6 +161,18 @@ router.get('/*/v1/models', authenticateApiKey, async (req, res) => {
     // 返回可用的模型列表
     const models = [
       {
+        id: 'claude-opus-5',
+        object: 'model',
+        created: Date.now(),
+        owned_by: 'anthropic'
+      },
+      {
+        id: 'claude-opus-5[1m]',
+        object: 'model',
+        created: Date.now(),
+        owned_by: 'anthropic'
+      },
+      {
         id: 'claude-fable-5',
         object: 'model',
         created: Date.now(),
