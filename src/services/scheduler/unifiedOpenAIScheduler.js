@@ -35,6 +35,15 @@ class UnifiedOpenAIScheduler {
       return false
     }
 
+    if (accountType === 'openai' && options.requireOpenAICodexImageGeneration) {
+      const planType = String(account.planType || '')
+        .trim()
+        .toLowerCase()
+      if (planType === 'free') {
+        return false
+      }
+    }
+
     return true
   }
 

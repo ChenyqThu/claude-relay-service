@@ -41,7 +41,8 @@ const scheduler = require('../src/services/scheduler/unifiedOpenAIScheduler')
 
 const imageSelectionOptions = {
   purpose: 'image-generation',
-  preferAccountTypes: ['openai', 'openai-responses']
+  preferAccountTypes: ['openai', 'openai-responses'],
+  requireOpenAICodexImageGeneration: true
 }
 
 function createRedisClient() {
@@ -140,6 +141,36 @@ describe('unifiedOpenAIScheduler image selection', () => {
 
     expect(selected).toEqual({
       accountId: 'openai-1',
+      accountType: 'openai'
+    })
+  })
+
+  test('skips free Codex accounts that do not expose image generation', async () => {
+    const freeAccount = createOpenAIAccount({
+      id: 'openai-free',
+      name: 'ChatGPT Free',
+      planType: 'free',
+      priority: 1
+    })
+    const teamAccount = createOpenAIAccount({
+      id: 'openai-team',
+      name: 'ChatGPT Team',
+      planType: 'team',
+      priority: 99
+    })
+
+    openaiAccountService.getAllAccounts.mockResolvedValue([freeAccount, teamAccount])
+    openaiResponsesAccountService.getAllAccounts.mockResolvedValue([])
+
+    const selected = await scheduler.selectAccountForApiKey(
+      { id: 'key-1', name: 'image key' },
+      null,
+      'gpt-5',
+      imageSelectionOptions
+    )
+
+    expect(selected).toEqual({
+      accountId: 'openai-team',
       accountType: 'openai'
     })
   })

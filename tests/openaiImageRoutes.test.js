@@ -193,7 +193,8 @@ describe('openai image routes', () => {
       'gpt-5',
       {
         purpose: 'image-generation',
-        preferAccountTypes: ['openai', 'openai-responses']
+        preferAccountTypes: ['openai', 'openai-responses'],
+        requireOpenAICodexImageGeneration: true
       }
     )
     expect(openaiImageRelayService.handleGeneration).toHaveBeenCalledWith(
@@ -250,7 +251,8 @@ describe('openai image routes', () => {
       'gpt-5',
       {
         purpose: 'image-generation',
-        preferAccountTypes: ['openai', 'openai-responses']
+        preferAccountTypes: ['openai', 'openai-responses'],
+        requireOpenAICodexImageGeneration: true
       }
     )
     expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenNthCalledWith(
@@ -261,6 +263,7 @@ describe('openai image routes', () => {
       {
         purpose: 'image-generation',
         preferAccountTypes: ['openai', 'openai-responses'],
+        requireOpenAICodexImageGeneration: true,
         excludedAccountIds: ['openai-1']
       }
     )
@@ -276,6 +279,62 @@ describe('openai image routes', () => {
         throwOnImageRelayError: true
       })
     )
+  })
+
+  test('retries when an account does not expose the image generation tool', async () => {
+    const incompatibleError = new Error(
+      "Tool choice 'image_generation' not found in 'tools' parameter."
+    )
+    incompatibleError.statusCode = 400
+    incompatibleError.type = 'invalid_request_error'
+    incompatibleError.payload = {
+      error: {
+        message: "Tool choice 'image_generation' not found in 'tools' parameter."
+      }
+    }
+
+    unifiedOpenAIScheduler.selectAccountForApiKey
+      .mockResolvedValueOnce({
+        accountId: 'openai-free',
+        accountType: 'openai'
+      })
+      .mockResolvedValueOnce({
+        accountId: 'openai-team',
+        accountType: 'openai'
+      })
+    openaiAccountService.getAccount.mockImplementation(async (accountId) => ({
+      id: accountId,
+      name: `Codex Account ${accountId}`,
+      accessToken: 'encrypted-token',
+      accountId: `chatgpt-${accountId}`
+    }))
+    openaiImageRelayService.handleGeneration
+      .mockRejectedValueOnce(incompatibleError)
+      .mockResolvedValueOnce({ ok: true })
+
+    const req = createReq({
+      body: {
+        prompt: 'draw a fallback diagram',
+        model: 'gpt-image-2'
+      }
+    })
+    const res = createRes()
+
+    await openaiRoutes.handleImageGeneration(req, res)
+
+    expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenNthCalledWith(
+      2,
+      req.apiKey,
+      null,
+      'gpt-5',
+      {
+        purpose: 'image-generation',
+        preferAccountTypes: ['openai', 'openai-responses'],
+        requireOpenAICodexImageGeneration: true,
+        excludedAccountIds: ['openai-free']
+      }
+    )
+    expect(openaiImageRelayService.handleGeneration).toHaveBeenCalledTimes(2)
   })
 
   test('passes OpenAI-Responses image requests through compatible providers', async () => {
@@ -306,7 +365,8 @@ describe('openai image routes', () => {
       'gpt-5',
       {
         purpose: 'image-generation',
-        preferAccountTypes: ['openai', 'openai-responses']
+        preferAccountTypes: ['openai', 'openai-responses'],
+        requireOpenAICodexImageGeneration: true
       }
     )
     expect(openaiImageRelayService.passthroughOpenAIResponses).toHaveBeenCalledWith(

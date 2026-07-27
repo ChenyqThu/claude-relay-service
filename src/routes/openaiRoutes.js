@@ -27,7 +27,8 @@ const CODEX_IMAGE_GENERATION_TOOL = { type: 'image_generation', output_format: '
 const MAX_IMAGE_RELAY_ATTEMPTS = 2
 const IMAGE_SELECTION_OPTIONS = Object.freeze({
   purpose: 'image-generation',
-  preferAccountTypes: ['openai', 'openai-responses']
+  preferAccountTypes: ['openai', 'openai-responses'],
+  requireOpenAICodexImageGeneration: true
 })
 const IMAGE_RETRYABLE_STATUS_CODES = new Set([401, 402, 429, 500, 502, 503, 504])
 
@@ -1058,7 +1059,15 @@ function shouldRetryImageRelay(error, attempt, maxAttempts, res) {
     return false
   }
 
-  return IMAGE_RETRYABLE_STATUS_CODES.has(getImageRelayErrorStatus(error))
+  if (IMAGE_RETRYABLE_STATUS_CODES.has(getImageRelayErrorStatus(error))) {
+    return true
+  }
+
+  const message = error?.payload?.error?.message || error?.message || ''
+  return (
+    getImageRelayErrorStatus(error) === 400 &&
+    message.includes("Tool choice 'image_generation' not found")
+  )
 }
 
 const handleImageRequest = async (req, res, action) => {
