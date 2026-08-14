@@ -30,7 +30,8 @@ class AccountBalanceService {
       'azure_openai',
       'bedrock',
       'droid',
-      'ccr'
+      'ccr',
+      'opencode'
     ]
   }
 
@@ -218,7 +219,8 @@ class AccountBalanceService {
       azure_openai: require('./azureOpenaiAccountService'),
       bedrock: require('./bedrockAccountService'),
       droid: require('./droidAccountService'),
-      ccr: require('./ccrAccountService')
+      ccr: require('./ccrAccountService'),
+      opencode: require('./opencodeAccountService')
     }
 
     const service = serviceMap[platform]
@@ -252,7 +254,8 @@ class AccountBalanceService {
       azure_openai: require('./azureOpenaiAccountService'),
       bedrock: require('./bedrockAccountService'),
       droid: require('./droidAccountService'),
-      ccr: require('./ccrAccountService')
+      ccr: require('./ccrAccountService'),
+      opencode: require('./opencodeAccountService')
     }
 
     const service = serviceMap[platform]

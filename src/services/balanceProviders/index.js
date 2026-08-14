@@ -20,6 +20,8 @@ function registerAllProviders(balanceService) {
   balanceService.registerProvider('bedrock', new GenericBalanceProvider('bedrock'))
   balanceService.registerProvider('droid', new GenericBalanceProvider('droid'))
   balanceService.registerProvider('ccr', new GenericBalanceProvider('ccr'))
+  // opencode 是包月套餐，上游没有余额接口，走本地统计降级
+  balanceService.registerProvider('opencode', new GenericBalanceProvider('opencode'))
 }
 
 module.exports = { registerAllProviders }

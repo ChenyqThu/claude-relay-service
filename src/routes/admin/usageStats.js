@@ -8,6 +8,7 @@ const geminiApiAccountService = require('../../services/account/geminiApiAccount
 const openaiAccountService = require('../../services/account/openaiAccountService')
 const openaiResponsesAccountService = require('../../services/account/openaiResponsesAccountService')
 const droidAccountService = require('../../services/account/droidAccountService')
+const opencodeAccountService = require('../../services/account/opencodeAccountService')
 const bedrockAccountService = require('../../services/account/bedrockAccountService')
 const redis = require('../../models/redis')
 const { authenticateAdmin } = require('../../middleware/auth')
@@ -2728,7 +2729,8 @@ router.get('/api-keys/:keyId/usage-records', authenticateAdmin, async (req, res)
       { type: 'openai-responses', getter: (id) => openaiResponsesAccountService.getAccount(id) },
       { type: 'gemini', getter: (id) => geminiAccountService.getAccount(id) },
       { type: 'gemini-api', getter: (id) => geminiApiAccountService.getAccount(id) },
-      { type: 'droid', getter: (id) => droidAccountService.getAccount(id) }
+      { type: 'droid', getter: (id) => droidAccountService.getAccount(id) },
+      { type: 'opencode', getter: (id) => opencodeAccountService.getAccount(id) }
     ]
 
     const accountCache = new Map()
