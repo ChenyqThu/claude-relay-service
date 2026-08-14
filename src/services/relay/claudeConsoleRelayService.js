@@ -245,8 +245,10 @@ class ClaudeConsoleRelayService {
         logger.debug('[DEBUG] Using x-api-key authentication for sk-ant-* API key')
       } else {
         // 其他 API Key 使用 Authorization Bearer
+        // 同时附带 x-api-key：部分网关（如 opencode zen）的 /v1/messages 只识别 x-api-key
         requestConfig.headers['Authorization'] = `Bearer ${account.apiKey}`
-        logger.debug('[DEBUG] Using Authorization Bearer authentication')
+        requestConfig.headers['x-api-key'] = account.apiKey
+        logger.debug('[DEBUG] Using Authorization Bearer authentication (with x-api-key fallback)')
       }
 
       logger.debug(
@@ -803,8 +805,10 @@ class ClaudeConsoleRelayService {
         logger.debug('[DEBUG] Using x-api-key authentication for sk-ant-* API key')
       } else {
         // 其他 API Key 使用 Authorization Bearer
+        // 同时附带 x-api-key：部分网关（如 opencode zen）的 /v1/messages 只识别 x-api-key
         requestConfig.headers['Authorization'] = `Bearer ${account.apiKey}`
-        logger.debug('[DEBUG] Using Authorization Bearer authentication')
+        requestConfig.headers['x-api-key'] = account.apiKey
+        logger.debug('[DEBUG] Using Authorization Bearer authentication (with x-api-key fallback)')
       }
 
       // 添加beta header如果需要
@@ -1489,6 +1493,7 @@ class ClaudeConsoleRelayService {
         requestOptions.extraHeaders['x-api-key'] = account.apiKey
       } else {
         requestOptions.authorization = `Bearer ${account.apiKey}`
+        requestOptions.extraHeaders['x-api-key'] = account.apiKey
       }
 
       await sendStreamTestRequest(requestOptions)

@@ -17,7 +17,8 @@ const ACCOUNT_TYPE_CONFIG = {
   'azure-openai': { prefix: 'azure_openai:account:' },
   gemini: { prefix: 'gemini_account:' },
   'gemini-api': { prefix: 'gemini_api_account:' },
-  droid: { prefix: 'droid:account:' }
+  droid: { prefix: 'droid:account:' },
+  opencode: { prefix: 'opencode_account:' }
 }
 
 const ACCOUNT_TYPE_PRIORITY = [
@@ -28,7 +29,8 @@ const ACCOUNT_TYPE_PRIORITY = [
   'claude-console',
   'gemini',
   'gemini-api',
-  'droid'
+  'droid',
+  'opencode'
 ]
 
 const ACCOUNT_CATEGORY_MAP = {
@@ -39,7 +41,8 @@ const ACCOUNT_CATEGORY_MAP = {
   'azure-openai': 'openai',
   gemini: 'gemini',
   'gemini-api': 'gemini',
-  droid: 'droid'
+  droid: 'droid',
+  opencode: 'opencode'
 }
 
 /**

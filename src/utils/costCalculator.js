@@ -86,6 +86,11 @@ class CostCalculator {
     )
   }
 
+  // 包月套餐模型：上游按订阅计费，单次请求边际成本为 0，只统计 token
+  static isFlatRateModel(model) {
+    return typeof model === 'string' && model.startsWith('opencode/')
+  }
+
   static isValidPricingServiceResult(result) {
     return (
       result &&
@@ -209,7 +214,9 @@ class CostCalculator {
     let pricing
     let usingDynamicPricing = false
 
-    if (pricingData) {
+    if (this.isFlatRateModel(safeModel)) {
+      pricing = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }
+    } else if (pricingData) {
       const usePriority = serviceTier === 'priority' && pricingData.supports_service_tier
 
       const inputPrice =
@@ -310,7 +317,8 @@ class CostCalculator {
    */
   static calculateCost(usage, model = 'unknown', serviceTier = null) {
     // 如果 usage 包含详细的 cache_creation 对象或是 1M 模型，优先使用 pricingService
-    if (this.isDetailedPricingRequest(usage, model)) {
+    // 包月套餐模型没有 token 价格，直接走零价路径，避免落到 unknown 的兜底价
+    if (!this.isFlatRateModel(model) && this.isDetailedPricingRequest(usage, model)) {
       const result = pricingService.calculateCost(usage, model)
       if (this.isValidPricingServiceResult(result)) {
         return this.buildDetailedPricingResult(usage, model, result)

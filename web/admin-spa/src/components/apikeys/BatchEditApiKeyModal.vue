@@ -352,6 +352,10 @@
                 <input v-model="form.permissions" class="mr-2" type="radio" value="droid" />
                 <span class="text-sm text-gray-700">仅 Droid</span>
               </label>
+              <label class="flex cursor-pointer items-center">
+                <input v-model="form.permissions" class="mr-2" type="radio" value="opencode" />
+                <span class="text-sm text-gray-700">仅 Opencode</span>
+              </label>
             </div>
           </div>
 

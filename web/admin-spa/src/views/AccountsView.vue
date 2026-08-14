@@ -1225,6 +1225,19 @@
                       >
                     </div>
                     <div
+                      v-else-if="account.platform === 'opencode'"
+                      class="flex items-center gap-1.5 rounded-lg border border-violet-200 bg-gradient-to-r from-violet-100 to-fuchsia-100 px-2.5 py-1 dark:border-violet-700 dark:from-violet-900/20 dark:to-fuchsia-900/20"
+                    >
+                      <i class="fas fa-cubes text-xs text-violet-700 dark:text-violet-400" />
+                      <span class="text-xs font-semibold text-violet-800 dark:text-violet-300"
+                        >Opencode</span
+                      >
+                      <span class="mx-1 h-4 w-px bg-violet-300 dark:bg-violet-600" />
+                      <span class="text-xs font-medium text-violet-700 dark:text-violet-300"
+                        >Zen</span
+                      >
+                    </div>
+                    <div
                       v-else-if="account.platform === 'droid'"
                       class="flex items-center gap-1.5 rounded-lg border border-cyan-200 bg-gradient-to-r from-cyan-100 to-sky-100 px-2.5 py-1 dark:border-cyan-700 dark:from-cyan-900/20 dark:to-sky-900/20"
                     >
@@ -1280,6 +1293,7 @@
                       account.platform === 'openai-responses' ||
                       account.platform === 'azure_openai' ||
                       account.platform === 'ccr' ||
+                      account.platform === 'opencode' ||
                       account.platform === 'droid' ||
                       account.platform === 'gemini-api'
                     "
@@ -1428,9 +1442,11 @@
                           ? 'bg-gradient-to-br from-gray-600 to-gray-700'
                           : account.platform === 'ccr'
                             ? 'bg-gradient-to-br from-teal-500 to-emerald-600'
-                            : account.platform === 'droid'
-                              ? 'bg-gradient-to-br from-cyan-500 to-sky-600'
-                              : 'bg-gradient-to-br from-blue-500 to-blue-600'
+                            : account.platform === 'opencode'
+                              ? 'bg-gradient-to-br from-violet-500 to-fuchsia-600'
+                              : account.platform === 'droid'
+                                ? 'bg-gradient-to-br from-cyan-500 to-sky-600'
+                                : 'bg-gradient-to-br from-blue-500 to-blue-600'
                 ]"
               >
                 <i
@@ -1446,9 +1462,11 @@
                             ? 'fas fa-openai'
                             : account.platform === 'ccr'
                               ? 'fas fa-code-branch'
-                              : account.platform === 'droid'
-                                ? 'fas fa-robot'
-                                : 'fas fa-robot'
+                              : account.platform === 'opencode'
+                                ? 'fas fa-cubes'
+                                : account.platform === 'droid'
+                                  ? 'fas fa-robot'
+                                  : 'fas fa-robot'
                   ]"
                 />
               </div>
@@ -1920,7 +1938,10 @@
 
     <!-- 添加账户模态框 -->
     <AccountForm
-      v-if="showCreateAccountModal && (!newAccountPlatform || newAccountPlatform !== 'ccr')"
+      v-if="
+        showCreateAccountModal &&
+        (!newAccountPlatform || !STANDALONE_FORM_PLATFORMS.includes(newAccountPlatform))
+      "
       @close="closeCreateAccountModal"
       @platform-changed="newAccountPlatform = $event"
       @success="handleCreateSuccess"
@@ -1930,10 +1951,21 @@
       @close="closeCreateAccountModal"
       @success="handleCreateSuccess"
     />
+    <OpencodeAccountForm
+      v-else-if="showCreateAccountModal && newAccountPlatform === 'opencode'"
+      @close="closeCreateAccountModal"
+      @success="handleCreateSuccess"
+    />
 
     <!-- 编辑账户模态框 -->
     <CcrAccountForm
       v-if="showEditAccountModal && editingAccount && editingAccount.platform === 'ccr'"
+      :account="editingAccount"
+      @close="showEditAccountModal = false"
+      @success="handleEditSuccess"
+    />
+    <OpencodeAccountForm
+      v-else-if="showEditAccountModal && editingAccount && editingAccount.platform === 'opencode'"
       :account="editingAccount"
       @close="showEditAccountModal = false"
       @success="handleEditSuccess"
@@ -2165,6 +2197,7 @@ import { showToast, copyText, formatNumber, formatRelativeTime } from '@/utils/t
 import * as httpApis from '@/utils/http_apis'
 import AccountForm from '@/components/accounts/AccountForm.vue'
 import CcrAccountForm from '@/components/accounts/CcrAccountForm.vue'
+import OpencodeAccountForm from '@/components/accounts/OpencodeAccountForm.vue'
 import AccountUsageDetailModal from '@/components/accounts/AccountUsageDetailModal.vue'
 import AccountErrorHistoryModal from '@/components/accounts/AccountErrorHistoryModal.vue'
 import AccountExpiryEditModal from '@/components/accounts/AccountExpiryEditModal.vue'
@@ -2275,6 +2308,7 @@ const TEMP_UNAVAILABLE_ACCOUNT_TYPE_ALIASES = {
   openai: ['openai'],
   'openai-responses': ['openai-responses'],
   ccr: ['ccr'],
+  opencode: ['opencode'],
   droid: ['droid'],
   azure_openai: ['azure-openai'],
   'azure-openai': ['azure-openai']
@@ -2323,7 +2357,8 @@ const supportedUsagePlatforms = [
   'gemini',
   'droid',
   'gemini-api',
-  'bedrock'
+  'bedrock',
+  'opencode'
 ]
 
 // 过期时间编辑弹窗状态
@@ -2413,15 +2448,25 @@ const platformHierarchy = [
     label: 'Droid（全部）',
     icon: 'fa-robot',
     children: [{ value: 'droid', label: 'Droid', icon: 'fa-robot' }]
+  },
+  {
+    value: 'group-opencode',
+    label: 'Opencode（全部）',
+    icon: 'fa-cubes',
+    children: [{ value: 'opencode', label: 'Opencode Zen', icon: 'fa-cubes' }]
   }
 ]
+
+// 使用独立表单组件（而非通用 AccountForm）的平台
+const STANDALONE_FORM_PLATFORMS = ['ccr', 'opencode']
 
 // 平台分组映射
 const platformGroupMap = {
   'group-claude': ['claude', 'claude-console', 'bedrock', 'ccr'],
   'group-openai': ['openai', 'openai-responses', 'azure_openai'],
   'group-gemini': ['gemini', 'gemini-api'],
-  'group-droid': ['droid']
+  'group-droid': ['droid'],
+  'group-opencode': ['opencode']
 }
 
 // 平台请求处理器
@@ -2434,6 +2479,7 @@ const platformRequestHandlers = {
   azure_openai: () => httpApis.getAzureOpenAIAccountsApi(),
   'openai-responses': () => httpApis.getOpenAIResponsesAccountsApi(),
   ccr: () => httpApis.getCcrAccountsApi(),
+  opencode: () => httpApis.getOpencodeAccountsApi(),
   droid: () => httpApis.getDroidAccountsApi(),
   'gemini-api': () => httpApis.getGeminiApiAccountsApi()
 }
@@ -2572,6 +2618,7 @@ const showResetButton = (account) => {
     'gemini',
     'gemini-api',
     'ccr',
+    'opencode',
     'droid',
     'bedrock',
     'azure-openai',
@@ -2687,7 +2734,8 @@ const supportedTestPlatforms = [
   'openai-responses',
   'azure-openai',
   'droid',
-  'ccr'
+  'ccr',
+  'opencode'
 ]
 
 const canTestAccount = (account) => {
@@ -3062,7 +3110,8 @@ const accountStats = computed(() => {
     { value: 'bedrock', label: 'Bedrock' },
     { value: 'openai-responses', label: 'OpenAI-Responses' },
     { value: 'ccr', label: 'CCR' },
-    { value: 'droid', label: 'Droid' }
+    { value: 'droid', label: 'Droid' },
+    { value: 'opencode', label: 'Opencode' }
   ]
 
   return platforms
@@ -3478,6 +3527,15 @@ const loadAccounts = async (forceReload = false) => {
         }
         case 'ccr': {
           const items = list.map((acc) => ({ ...acc, platform: 'ccr', boundApiKeysCount: 0 }))
+          allAccounts.push(...items)
+          break
+        }
+        case 'opencode': {
+          const items = list.map((acc) => {
+            const boundApiKeysCount =
+              counts.opencodeAccountId?.[acc.id] || acc.boundApiKeysCount || 0
+            return { ...acc, platform: 'opencode', boundApiKeysCount }
+          })
           allAccounts.push(...items)
           break
         }
@@ -4060,6 +4118,8 @@ const resolveAccountDeleteEndpoint = (account) => {
       return `/admin/openai-responses-accounts/${account.id}`
     case 'ccr':
       return `/admin/ccr-accounts/${account.id}`
+    case 'opencode':
+      return `/admin/opencode-accounts/${account.id}`
     case 'gemini':
       return `/admin/gemini-accounts/${account.id}`
     case 'droid':
@@ -4209,6 +4269,7 @@ const RESET_STATUS_ENDPOINT_MAP = {
   claude: (id) => `/admin/claude-accounts/${id}/reset-status`,
   'claude-console': (id) => `/admin/claude-console-accounts/${id}/reset-status`,
   ccr: (id) => `/admin/ccr-accounts/${id}/reset-status`,
+  opencode: (id) => `/admin/opencode-accounts/${id}/reset-status`,
   droid: (id) => `/admin/droid-accounts/${id}/reset-status`,
   'gemini-api': (id) => `/admin/gemini-api-accounts/${id}/reset-status`,
   gemini: (id) => `/admin/gemini-accounts/${id}/reset-status`,
@@ -4227,6 +4288,7 @@ const TOGGLE_SCHEDULABLE_ENDPOINT_MAP = {
   'azure-openai': (id) => `/admin/azure-openai-accounts/${id}/toggle-schedulable`,
   'openai-responses': (id) => `/admin/openai-responses-accounts/${id}/toggle-schedulable`,
   ccr: (id) => `/admin/ccr-accounts/${id}/toggle-schedulable`,
+  opencode: (id) => `/admin/opencode-accounts/${id}/toggle-schedulable`,
   droid: (id) => `/admin/droid-accounts/${id}/toggle-schedulable`,
   'gemini-api': (id) => `/admin/gemini-api-accounts/${id}/toggle-schedulable`
 }
@@ -5250,6 +5312,9 @@ const handleSaveAccountExpiry = async ({ accountId, expiresAt }) => {
         break
       case 'ccr':
         endpoint = `/admin/ccr-accounts/${accountId}`
+        break
+      case 'opencode':
+        endpoint = `/admin/opencode-accounts/${accountId}`
         break
       case 'openai':
         endpoint = `/admin/openai-accounts/${accountId}` // 使用 :id

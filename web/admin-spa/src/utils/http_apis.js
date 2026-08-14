@@ -218,6 +218,18 @@ export const createCcrAccountApi = (data) =>
 export const updateCcrAccountApi = (id, data) =>
   request({ url: `/admin/ccr-accounts/${id}`, method: 'PUT', data })
 
+// Opencode 账户
+export const getOpencodeAccountsApi = () =>
+  request({ url: '/admin/opencode-accounts', method: 'GET' })
+export const createOpencodeAccountApi = (data) =>
+  request({ url: '/admin/opencode-accounts', method: 'POST', data })
+export const updateOpencodeAccountApi = (id, data) =>
+  request({ url: `/admin/opencode-accounts/${id}`, method: 'PUT', data })
+export const getOpencodeAccountModelsApi = (id) =>
+  request({ url: `/admin/opencode-accounts/${id}/models`, method: 'GET' })
+export const clearOpencodeFormatCacheApi = (id) =>
+  request({ url: `/admin/opencode-accounts/${id}/clear-format-cache`, method: 'POST' })
+
 // 账户通用操作
 export const toggleAccountStatusApi = (endpoint) => request({ url: endpoint, method: 'PUT' })
 export const deleteAccountByEndpointApi = (endpoint) => request({ url: endpoint, method: 'DELETE' })
