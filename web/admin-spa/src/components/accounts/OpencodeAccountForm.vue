@@ -12,7 +12,7 @@
               <i class="fas fa-cubes text-sm text-white sm:text-base" />
             </div>
             <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100 sm:text-xl">
-              {{ isEdit ? '编辑 Opencode 账户' : '添加 Opencode 账户' }}
+              {{ isEdit ? '编辑 Opencode Go 账户' : '添加 Opencode Go 账户' }}
             </h3>
           </div>
           <button
@@ -86,7 +86,7 @@
               />
               <p v-if="errors.baseUrl" class="mt-1 text-xs text-red-500">{{ errors.baseUrl }}</p>
               <p v-else class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Go 套餐用 <code>/zen/go/v1</code>，Zen 全量用 <code>/zen/v1</code>
+                Go 套餐的接口地址，默认即可，一般不需要改
               </p>
             </div>
             <div>

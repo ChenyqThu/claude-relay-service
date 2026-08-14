@@ -1234,7 +1234,7 @@
                       >
                       <span class="mx-1 h-4 w-px bg-violet-300 dark:bg-violet-600" />
                       <span class="text-xs font-medium text-violet-700 dark:text-violet-300"
-                        >Zen</span
+                        >Go</span
                       >
                     </div>
                     <div
@@ -2453,7 +2453,7 @@ const platformHierarchy = [
     value: 'group-opencode',
     label: 'Opencode（全部）',
     icon: 'fa-cubes',
-    children: [{ value: 'opencode', label: 'Opencode Zen', icon: 'fa-cubes' }]
+    children: [{ value: 'opencode', label: 'Opencode Go', icon: 'fa-cubes' }]
   }
 ]
 

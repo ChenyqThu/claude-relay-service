@@ -455,7 +455,7 @@ const platformConfigs = {
     badge: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
   },
   opencode: {
-    label: 'Opencode',
+    label: 'Opencode Go',
     icon: 'fas fa-cubes',
     badge: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300'
   }

@@ -204,6 +204,37 @@
                       <p class="text-xs text-gray-600 dark:text-gray-400">Claude Droid</p>
                     </div>
                   </div>
+
+                  <!-- Opencode 分组 -->
+                  <div
+                    class="group relative cursor-pointer overflow-hidden rounded-lg border-2 transition-all duration-200"
+                    :class="[
+                      platformGroup === 'opencode'
+                        ? 'border-violet-500 bg-gradient-to-br from-violet-50 to-fuchsia-50 shadow-md dark:from-violet-900/20 dark:to-fuchsia-900/20'
+                        : 'border-gray-200 bg-white hover:border-violet-300 hover:shadow dark:border-gray-700 dark:bg-gray-800 dark:hover:border-violet-600'
+                    ]"
+                    @click="selectPlatformGroup('opencode')"
+                  >
+                    <div class="p-3">
+                      <div class="flex items-center justify-between">
+                        <div
+                          class="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-violet-500 to-fuchsia-500"
+                        >
+                          <i class="fas fa-cubes text-sm text-white"></i>
+                        </div>
+                        <div
+                          v-if="platformGroup === 'opencode'"
+                          class="flex h-5 w-5 items-center justify-center rounded-full bg-violet-500"
+                        >
+                          <i class="fas fa-check text-xs text-white"></i>
+                        </div>
+                      </div>
+                      <h4 class="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        Opencode
+                      </h4>
+                      <p class="text-xs text-gray-600 dark:text-gray-400">Opencode Go</p>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- 子平台选择器 -->
@@ -563,6 +594,40 @@
                         <div
                           v-if="form.platform === 'droid'"
                           class="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500"
+                        >
+                          <i class="fas fa-check text-xs text-white"></i>
+                        </div>
+                      </label>
+                    </template>
+
+                    <!-- Opencode 子选项 -->
+                    <template v-if="platformGroup === 'opencode'">
+                      <label
+                        class="group relative flex cursor-pointer items-center rounded-md border p-2 transition-all"
+                        :class="[
+                          form.platform === 'opencode'
+                            ? 'border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-900/30'
+                            : 'border-gray-300 bg-white hover:border-violet-400 hover:bg-violet-50/50 dark:border-gray-600 dark:bg-gray-700 dark:hover:border-violet-500 dark:hover:bg-violet-900/20'
+                        ]"
+                      >
+                        <input
+                          v-model="form.platform"
+                          class="sr-only"
+                          type="radio"
+                          value="opencode"
+                        />
+                        <div class="flex items-center gap-2">
+                          <i class="fas fa-cubes text-sm text-violet-600 dark:text-violet-400"></i>
+                          <div>
+                            <span class="block text-xs font-medium text-gray-900 dark:text-gray-100"
+                              >Opencode Go</span
+                            >
+                            <span class="text-xs text-gray-500 dark:text-gray-400">包月套餐</span>
+                          </div>
+                        </div>
+                        <div
+                          v-if="form.platform === 'opencode'"
+                          class="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-violet-500"
                         >
                           <i class="fas fa-check text-xs text-white"></i>
                         </div>
@@ -4173,6 +4238,8 @@ const determinePlatformGroup = (platform) => {
     return 'gemini'
   } else if (platform === 'droid') {
     return 'droid'
+  } else if (platform === 'opencode') {
+    return 'opencode'
   }
   return ''
 }
@@ -4692,6 +4759,8 @@ const selectPlatformGroup = (group) => {
     form.value.platform = 'gemini' // Default to Gemini CLI, user can select Antigravity
   } else if (group === 'droid') {
     form.value.platform = 'droid'
+  } else if (group === 'opencode') {
+    form.value.platform = 'opencode'
   }
 }
 
