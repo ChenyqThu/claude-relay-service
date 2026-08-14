@@ -367,7 +367,8 @@ const platformLabelMap = {
   gemini: 'Gemini',
   'gemini-api': 'Gemini API',
   droid: 'Droid',
-  bedrock: 'Claude AWS Bedrock'
+  bedrock: 'Claude AWS Bedrock',
+  opencode: 'Opencode Go'
 }
 
 const platformLabel = computed(() => platformLabelMap[props.account?.platform] || '未知平台')

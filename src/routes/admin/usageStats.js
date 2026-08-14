@@ -253,7 +253,8 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       'gemini',
       'gemini-api',
       'droid',
-      'bedrock'
+      'bedrock',
+      'opencode'
     ]
     if (!allowedPlatforms.includes(platform)) {
       return res.status(400).json({
@@ -267,7 +268,8 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       'openai-responses': 'openai-responses',
       'gemini-api': 'gemini-api',
       droid: 'droid',
-      bedrock: 'bedrock'
+      bedrock: 'bedrock',
+      opencode: 'opencode'
     }
 
     const fallbackModelMap = {
@@ -278,7 +280,8 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
       gemini: 'gemini-1.5-flash',
       'gemini-api': 'gemini-2.0-flash',
       droid: 'unknown',
-      bedrock: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0'
+      bedrock: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0',
+      opencode: 'opencode/unknown'
     }
 
     // 获取账户信息以获取创建时间
@@ -308,6 +311,9 @@ router.get('/accounts/:accountId/usage-history', authenticateAdmin, async (req, 
         }
         case 'droid':
           accountData = await droidAccountService.getAccount(accountId)
+          break
+        case 'opencode':
+          accountData = await opencodeAccountService.getAccount(accountId)
           break
         case 'bedrock': {
           const result = await bedrockAccountService.getAccount(accountId)
