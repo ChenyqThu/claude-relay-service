@@ -186,6 +186,7 @@ class ApiKeyService {
       azureOpenaiAccountId = null,
       bedrockAccountId = null, // 添加 Bedrock 账号ID支持
       droidAccountId = null,
+      opencodeAccountId = null,
       permissions = [], // 数组格式，空数组表示全部服务，如 ['claude', 'gemini']
       isActive = true,
       concurrencyLimit = 0,
@@ -245,6 +246,7 @@ class ApiKeyService {
       azureOpenaiAccountId: azureOpenaiAccountId || '',
       bedrockAccountId: bedrockAccountId || '', // 添加 Bedrock 账号ID
       droidAccountId: droidAccountId || '',
+      opencodeAccountId: opencodeAccountId || '',
       permissions: JSON.stringify(normalizePermissions(permissions)),
       enableModelRestriction: String(enableModelRestriction),
       restrictedModels: JSON.stringify(restrictedModels || []),
@@ -321,6 +323,7 @@ class ApiKeyService {
       azureOpenaiAccountId: keyData.azureOpenaiAccountId,
       bedrockAccountId: keyData.bedrockAccountId, // 添加 Bedrock 账号ID
       droidAccountId: keyData.droidAccountId,
+      opencodeAccountId: keyData.opencodeAccountId,
       permissions: normalizePermissions(keyData.permissions),
       enableModelRestriction: keyData.enableModelRestriction === 'true',
       restrictedModels: JSON.parse(keyData.restrictedModels),
@@ -520,6 +523,7 @@ class ApiKeyService {
           azureOpenaiAccountId: keyData.azureOpenaiAccountId,
           bedrockAccountId: keyData.bedrockAccountId, // 添加 Bedrock 账号ID
           droidAccountId: keyData.droidAccountId,
+          opencodeAccountId: keyData.opencodeAccountId,
           permissions: normalizePermissions(keyData.permissions),
           tokenLimit: parseInt(keyData.tokenLimit),
           concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
@@ -666,6 +670,7 @@ class ApiKeyService {
           azureOpenaiAccountId: keyData.azureOpenaiAccountId,
           bedrockAccountId: keyData.bedrockAccountId,
           droidAccountId: keyData.droidAccountId,
+          opencodeAccountId: keyData.opencodeAccountId,
           permissions: normalizePermissions(keyData.permissions),
           tokenLimit: parseInt(keyData.tokenLimit),
           concurrencyLimit: parseInt(keyData.concurrencyLimit || 0),
@@ -1290,6 +1295,7 @@ class ApiKeyService {
           'geminiAccountId',
           'openaiAccountId',
           'droidAccountId',
+          'opencodeAccountId',
           'isDeleted'
         )
       }
@@ -1307,7 +1313,8 @@ class ApiKeyService {
             geminiAccountId: fields[1] || null,
             openaiAccountId: fields[2] || null,
             droidAccountId: fields[3] || null,
-            isDeleted: fields[4] === 'true'
+            opencodeAccountId: fields[4] || null,
+            isDeleted: fields[5] === 'true'
           }
         })
         .filter((k) => k && !k.isDeleted)
@@ -1342,6 +1349,7 @@ class ApiKeyService {
         'azureOpenaiAccountId',
         'bedrockAccountId', // 添加 Bedrock 账号ID
         'droidAccountId',
+        'opencodeAccountId',
         'permissions',
         'expiresAt',
         'activationDays', // 新增：激活后有效天数
@@ -2405,6 +2413,7 @@ class ApiKeyService {
           userUsername: key.userUsername,
           createdBy: key.createdBy,
           droidAccountId: key.droidAccountId,
+          opencodeAccountId: key.opencodeAccountId,
           // Include deletion fields for deleted keys
           isDeleted: key.isDeleted,
           deletedAt: key.deletedAt,
@@ -2456,6 +2465,7 @@ class ApiKeyService {
         openaiAccountId: keyData.openaiAccountId,
         bedrockAccountId: keyData.bedrockAccountId,
         droidAccountId: keyData.droidAccountId,
+        opencodeAccountId: keyData.opencodeAccountId,
         azureOpenaiAccountId: keyData.azureOpenaiAccountId,
         ccrAccountId: keyData.ccrAccountId,
         enableOpenAIResponsesCodexAdaptation: parseBooleanWithDefault(
@@ -2617,6 +2627,7 @@ class ApiKeyService {
         azure_openai: 'azureOpenaiAccountId',
         bedrock: 'bedrockAccountId',
         droid: 'droidAccountId',
+        opencode: 'opencodeAccountId',
         ccr: null // CCR 账号没有对应的 API Key 字段
       }
 

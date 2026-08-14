@@ -139,7 +139,7 @@ router.post('/', authenticateAdmin, async (req, res) => {
     })
 
     if (accountType === 'group' && groupId) {
-      await accountGroupService.addAccountToGroup(newAccount.id, groupId)
+      await accountGroupService.addAccountToGroup(newAccount.id, groupId, 'opencode')
     }
 
     logger.success(`🔧 Admin created Opencode account: ${name}`)

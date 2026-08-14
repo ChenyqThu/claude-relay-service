@@ -284,11 +284,18 @@ class OpencodeAccountService {
         updatedData.disableAutoProtection = updates.disableAutoProtection.toString()
       }
 
-      await client.hset(`${this.ACCOUNT_KEY_PREFIX}${accountId}`, updatedData)
+      // accountType / groupId 不落在这些字段里，只改它们时 updatedData 会是空对象，
+      // 直接 hset 会报 "wrong number of arguments"
+      if (updates.accountType !== undefined) {
+        updatedData.accountType = updates.accountType
+      }
+
+      if (Object.keys(updatedData).length > 0) {
+        await client.hset(`${this.ACCOUNT_KEY_PREFIX}${accountId}`, updatedData)
+      }
 
       // 处理共享账户集合变更
       if (updates.accountType !== undefined) {
-        updatedData.accountType = updates.accountType
         if (updates.accountType === 'shared') {
           await client.sadd(this.SHARED_ACCOUNTS_KEY, accountId)
         } else {

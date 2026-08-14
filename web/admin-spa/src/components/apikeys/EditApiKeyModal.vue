@@ -848,6 +848,20 @@
                   platform="droid"
                 />
               </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-gray-600 dark:text-gray-400"
+                  >Opencode Go 专属账号</label
+                >
+                <AccountSelector
+                  v-model="form.opencodeAccountId"
+                  :accounts="localAccounts.opencode"
+                  default-option-text="使用共享账号池"
+                  :disabled="form.permissions.length > 0 && !form.permissions.includes('opencode')"
+                  :groups="localAccounts.opencodeGroups"
+                  placeholder="请选择Opencode账号"
+                  platform="opencode"
+                />
+              </div>
             </div>
             <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
               修改绑定账号将影响此API Key的请求路由
@@ -1050,10 +1064,12 @@ const props = defineProps({
       openai: [],
       bedrock: [],
       droid: [],
+      opencode: [],
       claudeGroups: [],
       geminiGroups: [],
       openaiGroups: [],
       droidGroups: [],
+      opencodeGroups: [],
       openaiResponses: []
     })
   }
@@ -1106,10 +1122,12 @@ const localAccounts = ref({
   openai: [],
   bedrock: [],
   droid: [],
+  opencode: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
-  droidGroups: []
+  droidGroups: [],
+  opencodeGroups: []
 })
 
 // 支持的客户端列表
@@ -1172,6 +1190,7 @@ const form = reactive({
   openaiAccountId: '',
   bedrockAccountId: '',
   droidAccountId: '',
+  opencodeAccountId: '',
   enableModelRestriction: false,
   restrictedModels: [],
   modelInput: '',
@@ -1432,6 +1451,12 @@ const updateApiKey = async () => {
       data.droidAccountId = null
     }
 
+    if (form.opencodeAccountId) {
+      data.opencodeAccountId = form.opencodeAccountId
+    } else {
+      data.opencodeAccountId = null
+    }
+
     // 模型限制 - 始终提交这些字段
     data.enableModelRestriction = form.enableModelRestriction
     data.restrictedModels = form.restrictedModels
@@ -1476,6 +1501,7 @@ const refreshAccounts = async () => {
       openaiResponsesData,
       bedrockData,
       droidData,
+      opencodeData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -1486,6 +1512,7 @@ const refreshAccounts = async () => {
       httpApis.getOpenAIResponsesAccountsApi(),
       httpApis.getBedrockAccountsApi(),
       httpApis.getDroidAccountsApi(),
+      httpApis.getOpencodeAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -1579,6 +1606,14 @@ const refreshAccounts = async () => {
       }))
     }
 
+    if (opencodeData.success) {
+      localAccounts.value.opencode = (opencodeData.data || []).map((account) => ({
+        ...account,
+        platform: 'opencode',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     // 处理分组数据
     if (groupsData.success) {
       const allGroups = groupsData.data || []
@@ -1586,6 +1621,7 @@ const refreshAccounts = async () => {
       localAccounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
       localAccounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       localAccounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
+      localAccounts.value.opencodeGroups = allGroups.filter((g) => g.platform === 'opencode')
     }
 
     showToast('账号列表已刷新', 'success')
@@ -1673,10 +1709,15 @@ onMounted(async () => {
         ...account,
         platform: account.platform || 'droid'
       })),
+      opencode: (props.accounts.opencode || []).map((account) => ({
+        ...account,
+        platform: account.platform || 'opencode'
+      })),
       claudeGroups: props.accounts.claudeGroups || [],
       geminiGroups: props.accounts.geminiGroups || [],
       openaiGroups: props.accounts.openaiGroups || [],
-      droidGroups: props.accounts.droidGroups || []
+      droidGroups: props.accounts.droidGroups || [],
+      opencodeGroups: props.accounts.opencodeGroups || []
     }
   }
 
@@ -1749,6 +1790,7 @@ onMounted(async () => {
 
   form.bedrockAccountId = props.apiKey.bedrockAccountId || ''
   form.droidAccountId = props.apiKey.droidAccountId || ''
+  form.opencodeAccountId = props.apiKey.opencodeAccountId || ''
   form.restrictedModels = props.apiKey.restrictedModels || []
   form.allowedClients = props.apiKey.allowedClients || []
   form.tags = props.apiKey.tags || []

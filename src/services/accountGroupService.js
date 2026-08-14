@@ -83,8 +83,8 @@ class AccountGroupService {
       }
 
       // 验证平台类型
-      if (!['claude', 'gemini', 'openai', 'droid'].includes(platform)) {
-        throw new Error('平台类型必须是 claude、gemini、openai 或 droid')
+      if (!['claude', 'gemini', 'openai', 'droid', 'opencode'].includes(platform)) {
+        throw new Error('平台类型必须是 claude、gemini、openai、droid 或 opencode')
       }
 
       const client = redis.getClientSafe()

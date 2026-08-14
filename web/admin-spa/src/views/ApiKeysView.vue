@@ -2301,10 +2301,12 @@ const accounts = ref({
   openaiResponses: [], // 添加 OpenAI-Responses 账号列表
   bedrock: [],
   droid: [],
+  opencode: [],
   claudeGroups: [],
   geminiGroups: [],
   openaiGroups: [],
-  droidGroups: []
+  droidGroups: [],
+  opencodeGroups: []
 })
 // 账号数据加载状态
 const accountsLoading = ref(false)
@@ -2590,6 +2592,7 @@ const loadAccounts = async (forceRefresh = false) => {
       openaiResponsesData,
       bedrockData,
       droidData,
+      opencodeData,
       groupsData
     ] = await Promise.all([
       httpApis.getClaudeAccountsApi(),
@@ -2600,6 +2603,7 @@ const loadAccounts = async (forceRefresh = false) => {
       httpApis.getOpenAIResponsesAccountsApi(),
       httpApis.getBedrockAccountsApi(),
       httpApis.getDroidAccountsApi(),
+      httpApis.getOpencodeAccountsApi(),
       httpApis.getAccountGroupsApi()
     ])
 
@@ -2685,6 +2689,14 @@ const loadAccounts = async (forceRefresh = false) => {
       }))
     }
 
+    if (opencodeData.success) {
+      accounts.value.opencode = (opencodeData.data || []).map((account) => ({
+        ...account,
+        platform: 'opencode',
+        isDedicated: account.accountType === 'dedicated'
+      }))
+    }
+
     if (groupsData.success) {
       // 处理分组数据
       const allGroups = groupsData.data || []
@@ -2692,6 +2704,7 @@ const loadAccounts = async (forceRefresh = false) => {
       accounts.value.geminiGroups = allGroups.filter((g) => g.platform === 'gemini')
       accounts.value.openaiGroups = allGroups.filter((g) => g.platform === 'openai')
       accounts.value.droidGroups = allGroups.filter((g) => g.platform === 'droid')
+      accounts.value.opencodeGroups = allGroups.filter((g) => g.platform === 'opencode')
     }
 
     // 标记账号数据已加载

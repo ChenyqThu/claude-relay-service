@@ -283,6 +283,59 @@
             </button>
           </div>
 
+          <!-- 账户类型 -->
+          <div>
+            <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+              >账户类型</label
+            >
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <label
+                v-for="option in accountTypeOptions"
+                :key="option.value"
+                class="flex cursor-pointer items-center gap-2 rounded-lg border p-3 transition-colors"
+                :class="
+                  form.accountType === option.value
+                    ? 'border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-900/30'
+                    : 'border-gray-300 bg-white hover:border-violet-400 dark:border-gray-600 dark:bg-gray-700'
+                "
+              >
+                <input
+                  v-model="form.accountType"
+                  class="sr-only"
+                  type="radio"
+                  :value="option.value"
+                />
+                <div>
+                  <span class="block text-sm font-medium text-gray-900 dark:text-gray-100">{{
+                    option.label
+                  }}</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400">{{ option.hint }}</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- 分组选择 -->
+          <div v-if="form.accountType === 'group'">
+            <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+              >所属分组 *</label
+            >
+            <select
+              v-model="form.groupId"
+              class="form-input w-full border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+              :class="{ 'border-red-500': errors.groupId }"
+            >
+              <option value="">请选择分组</option>
+              <option v-for="group in opencodeGroups" :key="group.id" :value="group.id">
+                {{ group.name }}
+              </option>
+            </select>
+            <p v-if="errors.groupId" class="mt-1 text-xs text-red-500">{{ errors.groupId }}</p>
+            <p v-else class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              没有可选分组？先在「账户分组」里创建一个 platform 为 opencode 的分组
+            </p>
+          </div>
+
           <!-- 代理配置 -->
           <div>
             <ProxyConfig v-model="form.proxy" />
@@ -318,7 +371,8 @@ import { ref, computed, watch, onMounted } from 'vue'
 import {
   createOpencodeAccountApi,
   updateOpencodeAccountApi,
-  getOpencodeAccountModelsApi
+  getOpencodeAccountModelsApi,
+  getAccountGroupsApi
 } from '@/utils/http_apis'
 import { showToast } from '@/utils/tools'
 import ProxyConfig from '@/components/accounts/ProxyConfig.vue'
@@ -348,8 +402,18 @@ const form = ref({
   rateLimitDuration: 60,
   dailyQuota: 0,
   quotaResetTime: '00:00',
-  proxy: null
+  proxy: null,
+  accountType: 'shared',
+  groupId: ''
 })
+
+const accountTypeOptions = [
+  { value: 'shared', label: '共享池', hint: '所有 API Key 可用' },
+  { value: 'dedicated', label: '专属', hint: '仅绑定的 Key 可用' },
+  { value: 'group', label: '分组', hint: '按分组调度' }
+]
+
+const opencodeGroups = ref([])
 
 const enableRateLimit = ref(true)
 const errors = ref({})
@@ -419,8 +483,19 @@ const validate = () => {
   if (!form.value.baseUrl || form.value.baseUrl.trim().length === 0) e.baseUrl = 'Base URL 不能为空'
   if (!isEdit.value && (!form.value.apiKey || form.value.apiKey.trim().length === 0))
     e.apiKey = 'API Key 不能为空'
+  if (form.value.accountType === 'group' && !form.value.groupId) e.groupId = '请选择分组'
   errors.value = e
   return Object.keys(e).length === 0
+}
+
+const loadGroups = async () => {
+  try {
+    const res = await getAccountGroupsApi()
+    const list = res?.data || []
+    opencodeGroups.value = list.filter((group) => group.platform === 'opencode')
+  } catch {
+    opencodeGroups.value = []
+  }
 }
 
 const submit = async () => {
@@ -438,7 +513,11 @@ const submit = async () => {
         dailyQuota: Number(form.value.dailyQuota || 0),
         quotaResetTime: form.value.quotaResetTime || '00:00',
         proxy: form.value.proxy || null,
-        supportedModels: buildSupportedModels()
+        supportedModels: buildSupportedModels(),
+        accountType: form.value.accountType
+      }
+      if (form.value.accountType === 'group') {
+        updates.groupId = form.value.groupId
       }
       if (form.value.apiKey && form.value.apiKey.trim().length > 0) {
         updates.apiKey = form.value.apiKey
@@ -460,9 +539,12 @@ const submit = async () => {
         userAgent: form.value.userAgent,
         rateLimitDuration: enableRateLimit.value ? Number(form.value.rateLimitDuration || 60) : 0,
         proxy: form.value.proxy,
-        accountType: 'shared',
+        accountType: form.value.accountType,
         dailyQuota: Number(form.value.dailyQuota || 0),
         quotaResetTime: form.value.quotaResetTime || '00:00'
+      }
+      if (form.value.accountType === 'group') {
+        payload.groupId = form.value.groupId
       }
       const res = await createOpencodeAccountApi(payload)
       if (res.success) {
@@ -490,6 +572,8 @@ const populateFromAccount = () => {
   form.value.dailyQuota = Number(a.dailyQuota || 0)
   form.value.quotaResetTime = a.quotaResetTime || '00:00'
   form.value.proxy = a.proxy || null
+  form.value.accountType = a.accountType || 'shared'
+  form.value.groupId = a.groupInfos?.[0]?.id || ''
   enableRateLimit.value = form.value.rateLimitDuration > 0
 
   modelMappings.value = []
@@ -502,6 +586,7 @@ const populateFromAccount = () => {
 }
 
 onMounted(() => {
+  loadGroups()
   if (isEdit.value) populateFromAccount()
 })
 
