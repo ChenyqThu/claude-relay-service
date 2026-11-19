@@ -4,14 +4,22 @@
  */
 
 const CLAUDE_MODELS = [
+  { value: 'claude-opus-5-5', label: 'Claude Opus 5.5' },
+  { value: 'claude-opus-5-5[1m]', label: 'Claude Opus 5.5 (1M)' },
   { value: 'claude-opus-5', label: 'Claude Opus 5' },
   { value: 'claude-opus-5[1m]', label: 'Claude Opus 5 (1M)' },
+  { value: 'claude-fable-5-2', label: 'Claude Fable 5.2' },
+  { value: 'claude-fable-5-2[1m]', label: 'Claude Fable 5.2 (1M)' },
+  { value: 'claude-fable-5-1', label: 'Claude Fable 5.1' },
+  { value: 'claude-fable-5-1[1m]', label: 'Claude Fable 5.1 (1M)' },
   { value: 'claude-fable-5', label: 'Claude Fable 5' },
   { value: 'claude-fable-5[1m]', label: 'Claude Fable 5 (1M)' },
   { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+  { value: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
   { value: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
   { value: 'claude-opus-4-8[1m]', label: 'Claude Opus 4.8 (1M)' },
+  { value: 'claude-sonnet-5-5[1m]', label: 'Claude Sonnet 5.5 (1M)' },
   { value: 'claude-sonnet-5[1m]', label: 'Claude Sonnet 5 (1M)' },
   { value: 'claude-sonnet-4-6[1m]', label: 'Claude Sonnet 4.6 (1M)' },
   { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
@@ -22,19 +30,44 @@ const CLAUDE_MODELS = [
   { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
   { value: 'claude-opus-4-1-20250805', label: 'Claude Opus 4.1' },
   { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+  { value: 'claude-haiku-5-5', label: 'Claude Haiku 5.5' },
+  { value: 'claude-haiku-5-5[1m]', label: 'Claude Haiku 5.5 (1M)' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
   { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' }
 ]
 
 const GEMINI_MODELS = [
+  { value: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
+  { value: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
+  { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
+  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+  { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
+  { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' },
+  {
+    value: 'gemini-3.1-pro-preview-customtools',
+    label: 'Gemini 3.1 Pro Preview (Custom Tools)'
+  },
+  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { value: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash Image' },
+  { value: 'gemini-3.1-flash-lite-image', label: 'Gemini 3.1 Flash-Lite Image' },
+  { value: 'gemini-3-pro-image', label: 'Gemini 3 Pro Image' },
+  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
   { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
   { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
-  { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
-  { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview' }
+  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
+  { value: 'gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image' },
+  { value: 'gemini-3.1-flash-tts-preview', label: 'Gemini 3.1 Flash TTS Preview' },
+  { value: 'gemini-2.5-flash-preview-tts', label: 'Gemini 2.5 Flash TTS Preview' },
+  { value: 'gemini-2.5-pro-preview-tts', label: 'Gemini 2.5 Pro TTS Preview' }
 ]
 
 const OPENAI_MODELS = [
+  { value: 'gpt-6.2-sol', label: 'GPT-6.2 Sol' },
+  { value: 'gpt-6.2-astra', label: 'GPT-6.2 Astra' },
+  { value: 'gpt-6.1-sol', label: 'GPT-6.1 Sol' },
+  { value: 'gpt-6.1-terra', label: 'GPT-6.1 Terra' },
+  { value: 'gpt-6-sol', label: 'GPT-6 Sol' },
+  { value: 'gpt-6-luna', label: 'GPT-6 Luna' },
   { value: 'gpt-5', label: 'GPT-5' },
   { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
   { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
@@ -52,6 +85,15 @@ const OPENAI_MODELS = [
   { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
   { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
   { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+  { value: 'gpt-6-astra', label: 'GPT-6 Astra' },
+  { value: 'gpt-6.2-astra-law', label: 'GPT-6.2 Astra Law' },
+  { value: 'gpt-6-astra-law', label: 'GPT-6 Astra Law' },
+  { value: 'gpt-6-cyber', label: 'GPT-6 Cyber' },
+  { value: 'gpt-6-rosalind', label: 'GPT-6 Rosalind' },
+  { value: 'gpt-image-2.6-flare', label: 'GPT Image 2.6 Flare' },
+  { value: 'gpt-image-2.6-sunburst', label: 'GPT Image 2.6 Sunburst' },
+  { value: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare' },
+  { value: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst' },
   { value: 'gpt-image-2', label: 'GPT Image 2' },
   { value: 'gpt-image-2-2026-04-21', label: 'GPT Image 2 (2026-04-21)' },
   { value: 'codex-mini', label: 'Codex Mini' }

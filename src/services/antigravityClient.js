@@ -135,7 +135,7 @@ function normalizeAntigravityThinking(model, requestPayload) {
   }
 
   const normalizedModel = normalizeAntigravityModelInput(model)
-  if (thinkingConfig.thinkingLevel && !normalizedModel.startsWith('gemini-3-')) {
+  if (thinkingConfig.thinkingLevel && !/^gemini-3(?:[.-])/.test(normalizedModel)) {
     delete thinkingConfig.thinkingLevel
   }
 
@@ -185,6 +185,71 @@ function normalizeAntigravityThinking(model, requestPayload) {
   }
 }
 
+function normalizeSchemaEnumValues(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeSchemaEnumValues(item))
+  }
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+
+  const normalized = {}
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'enum' && Array.isArray(child)) {
+      normalized[key] = child
+        .filter(
+          (item) =>
+            typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean'
+        )
+        .map((item) => String(item))
+      continue
+    }
+    normalized[key] = normalizeSchemaEnumValues(child)
+  }
+  return normalized
+}
+
+function normalizeAntigravityToolSchemas(requestPayload) {
+  if (!Array.isArray(requestPayload?.tools)) {
+    return
+  }
+
+  for (const tool of requestPayload.tools) {
+    if (!tool || typeof tool !== 'object') {
+      continue
+    }
+    const declarations = Array.isArray(tool.functionDeclarations)
+      ? tool.functionDeclarations
+      : Array.isArray(tool.function_declarations)
+        ? tool.function_declarations
+        : []
+
+    for (const declaration of declarations) {
+      if (!declaration || typeof declaration !== 'object') {
+        continue
+      }
+      for (const schemaKey of [
+        'parameters',
+        'parametersJsonSchema',
+        'response',
+        'responseJsonSchema'
+      ]) {
+        let schema = declaration[schemaKey]
+        if (typeof schema === 'string' && schema) {
+          try {
+            schema = JSON.parse(schema)
+          } catch (_) {
+            continue
+          }
+        }
+        if (schema && typeof schema === 'object') {
+          declaration[schemaKey] = normalizeSchemaEnumValues(schema)
+        }
+      }
+    }
+  }
+}
+
 function normalizeAntigravityEnvelope(envelope) {
   if (!envelope || typeof envelope !== 'object') {
     return
@@ -199,13 +264,12 @@ function normalizeAntigravityEnvelope(envelope) {
     delete requestPayload.safetySettings
   }
 
-  // 对齐 CLIProxyAPI：有 tools 时默认启用 VALIDATED（除非显式 NONE）
+  // Preserve the caller's native Gemini function-calling mode. Anthropic conversion applies its
+  // own Antigravity-specific mode before reaching this boundary.
   if (Array.isArray(requestPayload.tools) && requestPayload.tools.length > 0) {
-    const existing = requestPayload?.toolConfig?.functionCallingConfig || null
-    if (existing?.mode !== 'NONE') {
-      const nextCfg = { ...(existing || {}), mode: 'VALIDATED' }
-      requestPayload.toolConfig = { functionCallingConfig: nextCfg }
-    }
+    // Google Schema serializes enum as repeated strings, while JSON Schema permits numeric and
+    // boolean values. Normalize deeply nested enums before sending large third-party tool sets.
+    normalizeAntigravityToolSchemas(requestPayload)
   }
 
   // 对齐 CLIProxyAPI：非 Claude 模型移除 maxOutputTokens（Antigravity 环境不稳定）

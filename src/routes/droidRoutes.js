@@ -173,6 +173,30 @@ router.get('/*/v1/models', authenticateApiKey, async (req, res) => {
         owned_by: 'anthropic'
       },
       {
+        id: 'claude-fable-5-2',
+        object: 'model',
+        created: Date.now(),
+        owned_by: 'anthropic'
+      },
+      {
+        id: 'claude-fable-5-2[1m]',
+        object: 'model',
+        created: Date.now(),
+        owned_by: 'anthropic'
+      },
+      {
+        id: 'claude-fable-5-1',
+        object: 'model',
+        created: Date.now(),
+        owned_by: 'anthropic'
+      },
+      {
+        id: 'claude-fable-5-1[1m]',
+        object: 'model',
+        created: Date.now(),
+        owned_by: 'anthropic'
+      },
+      {
         id: 'claude-fable-5',
         object: 'model',
         created: Date.now(),

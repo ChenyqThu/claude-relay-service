@@ -331,6 +331,7 @@ class Application {
       // 🛣️ 路由
       this.app.use('/api', apiRoutes)
       this.app.use('/api', unifiedRoutes) // 统一智能路由（支持 /v1/chat/completions 等）
+      this.app.use('/api', standardGeminiRoutes) // Google Gemini 原生格式兼容
       this.app.use('/claude', apiRoutes) // /claude 路由别名，与 /api 功能相同
       // Anthropic (Claude Code) 路由：按路径强制分流到 Gemini OAuth 账户
       // - /antigravity/api/v1/messages -> Antigravity OAuth

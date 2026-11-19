@@ -84,6 +84,130 @@ describe('PricingService - Long Context Pricing', () => {
     jest.clearAllMocks()
   })
 
+  it.each([
+    'gpt-image-2.6-flare',
+    'gpt-image-2.6-sunburst',
+    'gpt-image-2.5-flare',
+    'gpt-image-2.5-sunburst'
+  ])('uses dedicated image output pricing for %s', (model) => {
+    pricingService.pricingData = fallbackPricingData
+    const result = pricingService.calculateCost({ input_tokens: 1000, output_tokens: 1000 }, model)
+    expect(result.inputCost).toBeCloseTo(0.005)
+    expect(result.outputCost).toBeCloseTo(0.03)
+  })
+
+  it('bills image output when upstream pricing only has output_cost_per_image_token', () => {
+    const { output_cost_per_token: _omitted, ...imageOnlyPricing } =
+      fallbackPricingData['gpt-image-2.6-flare']
+    pricingService.pricingData = { 'gpt-image-2.6-flare': imageOnlyPricing }
+    const result = pricingService.calculateCost(
+      { input_tokens: 1000, output_tokens: 1000 },
+      'gpt-image-2.6-flare'
+    )
+    expect(result.outputCost).toBeCloseTo(0.03)
+  })
+
+  it.each(['claude-fable-5-2', 'claude-fable-5-2[1m]'])(
+    'uses dedicated Fable 5.2 pricing instead of the Fable 5 fuzzy match for %s',
+    (model) => {
+      pricingService.pricingData = fallbackPricingData
+      const result = pricingService.calculateCost(
+        {
+          input_tokens: 1000,
+          output_tokens: 1000,
+          cache_creation_input_tokens: 1000,
+          cache_read_input_tokens: 1000
+        },
+        model
+      )
+      expect(result.inputCost).toBeCloseTo(0.008)
+      expect(result.outputCost).toBeCloseTo(0.04)
+      expect(result.cacheCreateCost).toBeCloseTo(0.01)
+      expect(result.cacheReadCost).toBeCloseTo(0.0002)
+    }
+  )
+
+  it('uses dedicated Astra pricing when only bundled pricing is available', () => {
+    pricingService.pricingData = fallbackPricingData
+
+    const result = pricingService.calculateCost(
+      { input_tokens: 1000, output_tokens: 100 },
+      'gpt-6-astra'
+    )
+
+    expect(result.inputCost).toBeCloseTo(0.01)
+    expect(result.outputCost).toBeCloseTo(0.005)
+    expect(result.totalCost).toBeCloseTo(0.015)
+  })
+
+  it.each(['claude-opus-5-5', 'claude-opus-5-5[1m]'])(
+    'uses Opus 5.5 pricing including discounted cache reads for %s',
+    (model) => {
+      pricingService.pricingData = fallbackPricingData
+      const result = pricingService.calculateCost(
+        {
+          input_tokens: 300000,
+          output_tokens: 1000,
+          cache_creation_input_tokens: 1000,
+          cache_read_input_tokens: 1000
+        },
+        model
+      )
+      expect(result.inputCost).toBeCloseTo(1.2)
+      expect(result.outputCost).toBeCloseTo(0.02)
+      expect(result.cacheCreateCost).toBeCloseTo(0.005)
+      expect(result.cacheReadCost).toBeCloseTo(0.0002, 8)
+    }
+  )
+
+  it.each([272000, 272001])('applies Astra long context pricing above 272K: %s', (tokens) => {
+    pricingService.pricingData = fallbackPricingData
+    const result = pricingService.calculateCost(
+      { input_tokens: tokens, output_tokens: 1000 },
+      'gpt-6-astra'
+    )
+    expect(result.inputCost).toBeCloseTo(tokens * (tokens > 272000 ? 0.00002 : 0.00001))
+    expect(result.outputCost).toBeCloseTo(tokens > 272000 ? 0.075 : 0.05)
+  })
+
+  it.each([
+    ['gpt-6-sol', 0.000002],
+    ['gpt-6-luna', 0.0000001]
+  ])('prices %s standard and long context including cache tokens', (model, rate) => {
+    pricingService.pricingData = fallbackPricingData
+    for (const input of [270000, 270001]) {
+      const long = input > 270000
+      const result = pricingService.calculateCost(
+        {
+          input_tokens: input,
+          output_tokens: 1000,
+          cache_read_input_tokens: 1000,
+          cache_creation_input_tokens: 1000
+        },
+        model
+      )
+      expect(result.inputCost).toBeCloseTo(input * rate * (long ? 2 : 1), 8)
+      expect(result.outputCost).toBeCloseTo(1000 * rate * (long ? 7.5 : 5), 8)
+      expect(result.cacheReadCost).toBeCloseTo(1000 * rate * (long ? 0.2 : 0.1), 8)
+      expect(result.cacheCreateCost).toBeCloseTo(1000 * rate * (long ? 2.5 : 1.25), 8)
+    }
+  })
+
+  it.each([
+    ['gpt-6.2-sol', 0.000002, 0.00001],
+    ['gpt-6.2-astra', 0.000008, 0.00004],
+    ['gpt-6.1-terra', 0.000001, 0.000005],
+    ['gpt-6.2-astra-law', 0.000008, 0.00004],
+    ['gpt-6-astra-law', 0.00001, 0.00005],
+    ['gpt-6-cyber', 0.00002, 0.0001],
+    ['gpt-6-rosalind', 0.000015, 0.000075]
+  ])('prices %s from bundled fallback pricing', (model, inputRate, outputRate) => {
+    pricingService.pricingData = fallbackPricingData
+    const result = pricingService.calculateCost({ input_tokens: 1000, output_tokens: 1000 }, model)
+    expect(result.inputCost).toBeCloseTo(1000 * inputRate, 10)
+    expect(result.outputCost).toBeCloseTo(1000 * outputRate, 10)
+  })
+
   describe('Claude 模型平坦计费（无 200K+ 加价）', () => {
     it('199999 tokens - 应使用基础价格', () => {
       const usage = {

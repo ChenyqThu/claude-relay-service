@@ -118,14 +118,19 @@ class GeminiToOpenAIConverter {
         }
 
         if (part.functionCall) {
-          toolCalls.push({
-            id: `${part.functionCall.name}-${Date.now()}-${fnIndex}`,
+          const toolCall = {
+            id: part.functionCall.id || `${part.functionCall.name}-${Date.now()}-${fnIndex}`,
             type: 'function',
             function: {
               name: part.functionCall.name,
               arguments: JSON.stringify(part.functionCall.args || {})
             }
-          })
+          }
+          const thoughtSignature = part.thoughtSignature || part.thought_signature || part.signature
+          if (thoughtSignature) {
+            toolCall.extra_content = { google: { thought_signature: thoughtSignature } }
+          }
+          toolCalls.push(toolCall)
           fnIndex++
         } else if (part.text !== undefined) {
           if (part.thought) {
@@ -244,18 +249,23 @@ class GeminiToOpenAIConverter {
 
         if (part.functionCall) {
           state.candidatesWithFunctionCalls.add(candidateIndex)
+          const toolCall = {
+            index: state.functionIndex,
+            id:
+              part.functionCall.id ||
+              `${part.functionCall.name}-${Date.now()}-${state.functionIndex}`,
+            type: 'function',
+            function: {
+              name: part.functionCall.name,
+              arguments: JSON.stringify(part.functionCall.args || {})
+            }
+          }
+          const thoughtSignature = part.thoughtSignature || part.thought_signature || part.signature
+          if (thoughtSignature) {
+            toolCall.extra_content = { google: { thought_signature: thoughtSignature } }
+          }
           chunk.choices[0].delta = {
-            tool_calls: [
-              {
-                index: state.functionIndex,
-                id: `${part.functionCall.name}-${Date.now()}-${state.functionIndex}`,
-                type: 'function',
-                function: {
-                  name: part.functionCall.name,
-                  arguments: JSON.stringify(part.functionCall.args || {})
-                }
-              }
-            ]
+            tool_calls: [toolCall]
           }
           this._injectRole(state, chunk.choices[0].delta)
           state.functionIndex++

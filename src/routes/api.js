@@ -26,6 +26,9 @@ const {
   handleAnthropicMessagesToGemini,
   handleAnthropicCountTokensToGemini
 } = require('../services/anthropicGeminiBridgeService')
+// 🎨 复用 openaiRoutes 的图像生成/编辑 handler，供 /api/v1/images/* 别名路由使用
+// （OpenAI 官方路径习惯是 /v1/images/generations，此前只挂在 /openai/v1/images/* 下）
+const { handleImageGeneration, handleImageEdit } = require('./openaiRoutes')
 const router = express.Router()
 
 function queueRateLimitUpdate(
@@ -1474,7 +1477,7 @@ router.post('/v1/messages', authenticateApiKey, handleMessagesRequest)
 router.post('/claude/v1/messages', authenticateApiKey, handleMessagesRequest)
 
 // 📋 模型列表端点 - 支持 Claude, OpenAI, Gemini
-router.get('/v1/models', authenticateApiKey, async (req, res) => {
+async function handleModelsList(req, res) {
   try {
     // Claude Code / Anthropic baseUrl 的分流：/antigravity/api/v1/models 返回 Antigravity 实时模型列表
     //（通过 v1internal:fetchAvailableModels），避免依赖静态 modelService 列表。
@@ -1558,7 +1561,11 @@ router.get('/v1/models', authenticateApiKey, async (req, res) => {
       message: error.message
     })
   }
-})
+}
+
+router.get('/v1/models', authenticateApiKey, handleModelsList)
+// 兼容把 /api 或 /antigravity/api 直接配置为 Base URL 的 OpenAI 客户端。
+router.get('/models', authenticateApiKey, handleModelsList)
 
 // 🏥 健康检查端点
 router.get('/health', async (req, res) => {
@@ -1928,6 +1935,12 @@ router.post('/v1/messages/count_tokens', authenticateApiKey, async (req, res) =>
     }
   }
 })
+
+// 🖼️ 图像生成/编辑端点别名 - OpenAI 官方路径习惯 /api/v1/images/*
+// 原实现挂在 /openai/v1/images/*（openaiRoutes.js），这里复用同一 handler，
+// 让走 /api 前缀（含 base_url=.../api）的客户端也能直接用官方风格路径。
+router.post('/v1/images/generations', authenticateApiKey, handleImageGeneration)
+router.post('/v1/images/edits', authenticateApiKey, handleImageEdit)
 
 // Claude Code 客户端遥测端点 - 返回成功响应避免 404 日志
 router.post('/api/event_logging/batch', (req, res) => {

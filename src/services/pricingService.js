@@ -625,7 +625,9 @@ class PricingService {
           : baseInputPrice
       : baseInputPrice
 
-    const baseOutputPrice = pricing.output_cost_per_token || 0
+    // 纯图片模型（如 gpt-image-2.6-*）上游定价只给 output_cost_per_image_token
+    const baseOutputPrice =
+      pricing.output_cost_per_token || pricing.output_cost_per_image_token || 0
     const hasOutput200kPrice =
       pricing.output_cost_per_token_above_200k_tokens !== null &&
       pricing.output_cost_per_token_above_200k_tokens !== undefined
@@ -678,6 +680,21 @@ class PricingService {
       if (!actualEphemeral1hPrice) {
         actualEphemeral1hPrice = actualInputPrice * this.claudeCacheMultipliers.write1h
       }
+    }
+
+    // OpenAI 272K tiers apply automatically to the full request, without a [1m] suffix.
+    if (
+      !isClaudeModel &&
+      totalInputTokens > 272000 &&
+      typeof pricing.input_cost_per_token_above_272k_tokens === 'number'
+    ) {
+      isLongContextRequest = true
+      actualInputPrice = pricing.input_cost_per_token_above_272k_tokens
+      actualOutputPrice = pricing.output_cost_per_token_above_272k_tokens ?? actualOutputPrice
+      actualCacheCreatePrice =
+        pricing.cache_creation_input_token_cost_above_272k_tokens ?? actualCacheCreatePrice
+      actualCacheReadPrice =
+        pricing.cache_read_input_token_cost_above_272k_tokens ?? actualCacheReadPrice
     }
 
     // Fast Mode 倍率：统一一次性应用于所有价格

@@ -34,6 +34,33 @@ const {
   handleModelDetails
 } = require('../handlers/geminiHandlers')
 
+// Some Google-compatible clients treat the configured base URL as the API version root and
+// append /models/:modelName:* directly. Keep these aliases alongside the explicit v1/v1beta
+// routes so /api can be used as a base URL when this router is mounted there.
+router.post(
+  '/models/:modelName\\:generateContent',
+  authenticateApiKey,
+  ensureGeminiPermissionMiddleware,
+  handleStandardGenerateContent
+)
+
+router.post(
+  '/models/:modelName\\:streamGenerateContent',
+  authenticateApiKey,
+  ensureGeminiPermissionMiddleware,
+  handleStandardStreamGenerateContent
+)
+
+router.post(
+  '/models/:modelName\\:countTokens',
+  authenticateApiKey,
+  ensureGeminiPermissionMiddleware,
+  (req, res, next) => {
+    logger.info(`Standard Gemini API request: ${req.method} ${req.originalUrl}`)
+    handleCountTokens(req, res, next)
+  }
+)
+
 // ============================================================================
 // v1beta 版本的标准路由 - 支持动态模型名称
 // ============================================================================

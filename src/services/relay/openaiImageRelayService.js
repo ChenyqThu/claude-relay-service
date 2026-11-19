@@ -18,11 +18,12 @@ const openaiAccountService = require('../account/openaiAccountService')
 const openaiResponsesAccountService = require('../account/openaiResponsesAccountService')
 const unifiedOpenAIScheduler = require('../scheduler/unifiedOpenAIScheduler')
 
-const DEFAULT_IMAGES_MAIN_MODEL = 'gpt-5.4-mini'
+// 2026-10-28: gpt-5.5 不再被 ChatGPT 账号 Codex 接受,改为 gpt-5.6-terra;可用 IMAGES_MAIN_MODEL 覆盖
+const DEFAULT_IMAGES_MAIN_MODEL = process.env.IMAGES_MAIN_MODEL || 'gpt-5.6-terra'
 const DEFAULT_IMAGES_TOOL_MODEL = 'gpt-image-2'
 const DEFAULT_RESPONSE_FORMAT = 'b64_json'
 const CODEX_IMAGES_ENDPOINT = 'https://chatgpt.com/backend-api/codex/responses'
-const CODEX_IMAGE_VERSION = '0.144.5'
+const CODEX_IMAGE_VERSION = '0.145.0'
 const CODEX_IMAGE_USER_AGENT = `codex_cli_rs/${CODEX_IMAGE_VERSION}`
 const CODEX_IMAGE_ORIGINATOR = 'codex_cli_rs'
 const MAX_IMAGE_FORM_BYTES = 100 * 1024 * 1024
@@ -1255,7 +1256,12 @@ class OpenAIImageRelayService {
       return null
     }
 
-    const model = toTrimmedString(usage.model) || DEFAULT_IMAGES_TOOL_MODEL
+    const imageTool = options.requestBody?.tools?.find((tool) => tool.type === 'image_generation')
+    const model =
+      toTrimmedString(usage.model) ||
+      toTrimmedString(imageTool?.model) ||
+      toTrimmedString(options.requestBody?.model) ||
+      DEFAULT_IMAGES_TOOL_MODEL
     const costs = await apiKeyService.recordUsage(
       context.apiKeyData.id,
       actualInputTokens,

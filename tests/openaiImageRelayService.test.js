@@ -85,6 +85,36 @@ describe('openaiImageRelayService helpers', () => {
     ])
   })
 
+  test.each([
+    'gpt-image-2.6-flare',
+    'gpt-image-2.6-sunburst',
+    'gpt-image-2.5-flare',
+    'gpt-image-2.5-sunburst'
+  ])('preserves %s for generation and edit tools', (model) => {
+    for (const action of ['generate', 'edit']) {
+      const payload = openaiImageRelayService.buildImagesResponsesRequest({
+        prompt: 'Draw a circle',
+        action,
+        source: { model, quality: 'max' }
+      })
+      expect(payload.tools[0]).toMatchObject({ model, action, quality: 'max' })
+    }
+  })
+
+  test.each([
+    { model: 'gpt-image-2.5-flare' },
+    { model: 'gpt-5.5', tools: [{ type: 'image_generation', model: 'gpt-image-2.5-flare' }] }
+  ])('records the requested image model when usage omits model: %j', async (requestBody) => {
+    const apiKeyService = require('../src/services/apiKeyService')
+    apiKeyService.recordUsage.mockClear()
+    await openaiImageRelayService._recordUsage(
+      {},
+      { apiKeyData: { id: 'key-1' }, accountId: 'account-1', accountType: 'openai' },
+      { usage: { input_tokens: 10, output_tokens: 20 }, requestBody }
+    )
+    expect(apiKeyService.recordUsage.mock.calls[0][5]).toBe('gpt-image-2.5-flare')
+  })
+
   test.each([0, 11, 1.5, 'many'])('rejects invalid image count %p', (n) => {
     expect(() =>
       openaiImageRelayService.buildImagesResponsesRequest({

@@ -180,34 +180,37 @@ describe('openai responses payload toggles', () => {
     openaiAccountService.decrypt.mockReturnValue('decrypted-token')
   })
 
-  test('keeps standard responses payload unchanged for openai-responses when both toggles are off', async () => {
-    const req = createReq({
-      body: {
-        model: 'gpt-5-2025-08-07',
+  test.each(['gpt-5-2025-08-07', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'])(
+    'keeps standard responses payload unchanged for %s when both toggles are off',
+    async (model) => {
+      const req = createReq({
+        body: {
+          model,
+          temperature: 0.2,
+          service_tier: 'priority',
+          prompt_cache_key: 'session-a'
+        },
+        apiKeyOverrides: {
+          enableOpenAIResponsesCodexAdaptation: false,
+          enableOpenAIResponsesPayloadRules: false
+        }
+      })
+
+      await openaiRoutes.handleResponses(req, createRes())
+
+      expect(req.body).toEqual({
+        model,
         temperature: 0.2,
         service_tier: 'priority',
         prompt_cache_key: 'session-a'
-      },
-      apiKeyOverrides: {
-        enableOpenAIResponsesCodexAdaptation: false,
-        enableOpenAIResponsesPayloadRules: false
-      }
-    })
-
-    await openaiRoutes.handleResponses(req, createRes())
-
-    expect(req.body).toEqual({
-      model: 'gpt-5-2025-08-07',
-      temperature: 0.2,
-      service_tier: 'priority',
-      prompt_cache_key: 'session-a'
-    })
-    expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
-      req.apiKey,
-      createHash('session-a'),
-      'gpt-5'
-    )
-  })
+      })
+      expect(unifiedOpenAIScheduler.selectAccountForApiKey).toHaveBeenCalledWith(
+        req.apiKey,
+        createHash('session-a'),
+        model.startsWith('gpt-6-') ? model : 'gpt-5'
+      )
+    }
+  )
 
   test('applies Codex adaptation only when adaptation toggle is on', async () => {
     const req = createReq({

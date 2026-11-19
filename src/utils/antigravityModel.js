@@ -2,6 +2,9 @@ const DEFAULT_ANTIGRAVITY_MODEL = 'gemini-2.5-flash'
 
 const UPSTREAM_TO_ALIAS = {
   'rev19-uic3-1p': 'gemini-2.5-computer-use-preview-10-2025',
+  'gemini-3.6-flash-tiered': 'gemini-3.6-flash',
+  'gemini-3.7-flash-tiered': 'gemini-3.7-flash',
+  'gemini-3.8-flash-tiered': 'gemini-3.8-flash',
   'gemini-3-pro-image': 'gemini-3-pro-image-preview',
   'gemini-3-pro-high': 'gemini-3-pro-preview',
   'gemini-3.1-pro-high': 'gemini-3.1-pro-preview',
@@ -15,11 +18,16 @@ const UPSTREAM_TO_ALIAS = {
   'gemini-2.5-flash-thinking': '',
   'gemini-3-pro-low': '',
   'gemini-3.1-pro-low': '',
+  'gemini-3.5-flash-extra-low': '',
+  'gemini-3.5-flash-low': '',
   'gemini-2.5-pro': ''
 }
 
 const ALIAS_TO_UPSTREAM = {
   'gemini-2.5-computer-use-preview-10-2025': 'rev19-uic3-1p',
+  'gemini-3.6-flash': 'gemini-3.6-flash-tiered',
+  'gemini-3.7-flash': 'gemini-3.7-flash-tiered',
+  'gemini-3.8-flash': 'gemini-3.8-flash-tiered',
   'gemini-3-pro-image-preview': 'gemini-3-pro-image',
   'gemini-3-pro-preview': 'gemini-3-pro-high',
   'gemini-3.1-pro-preview': 'gemini-3.1-pro-high',
@@ -38,6 +46,66 @@ const ANTIGRAVITY_MODEL_METADATA = {
   'gemini-2.5-flash-lite': {
     thinking: { min: 0, max: 24576, zeroAllowed: true, dynamicAllowed: true },
     name: 'models/gemini-2.5-flash-lite'
+  },
+  'gemini-3.1-flash-lite': {
+    thinking: {
+      min: 128,
+      max: 32768,
+      zeroAllowed: false,
+      dynamicAllowed: true,
+      levels: ['minimal', 'low', 'medium', 'high']
+    },
+    name: 'models/gemini-3.1-flash-lite'
+  },
+  'gemini-3.5-flash': {
+    thinking: {
+      min: 128,
+      max: 32768,
+      zeroAllowed: false,
+      dynamicAllowed: true,
+      levels: ['low', 'medium', 'high']
+    },
+    name: 'models/gemini-3.5-flash'
+  },
+  'gemini-3.5-flash-lite': {
+    thinking: {
+      min: 128,
+      max: 32768,
+      zeroAllowed: false,
+      dynamicAllowed: true,
+      levels: ['minimal', 'low', 'medium', 'high']
+    },
+    name: 'models/gemini-3.5-flash-lite'
+  },
+  'gemini-3.6-flash': {
+    thinking: {
+      min: 128,
+      max: 32768,
+      zeroAllowed: false,
+      dynamicAllowed: true,
+      levels: ['low', 'medium', 'high']
+    },
+    name: 'models/gemini-3.6-flash'
+  },
+  'gemini-3.7-flash': {
+    thinking: {
+      min: 128,
+      max: 32768,
+      zeroAllowed: false,
+      dynamicAllowed: true,
+      levels: ['low', 'medium', 'high']
+    },
+    name: 'models/gemini-3.7-flash'
+  },
+  'gemini-3.8-flash': {
+    thinking: {
+      min: 128,
+      max: 32768,
+      zeroAllowed: false,
+      dynamicAllowed: true,
+      levels: ['low', 'medium', 'high']
+    },
+    name: 'models/gemini-3.8-flash'
   },
   'gemini-2.5-computer-use-preview-10-2025': {
     name: 'models/gemini-2.5-computer-use-preview-10-2025'
@@ -115,6 +183,14 @@ function getAntigravityModelMetadata(modelName) {
   const normalized = normalizeAntigravityModelInput(modelName)
   if (Object.prototype.hasOwnProperty.call(ANTIGRAVITY_MODEL_METADATA, normalized)) {
     return ANTIGRAVITY_MODEL_METADATA[normalized]
+  }
+  const alias = getAntigravityModelAlias(normalized)
+  if (
+    alias &&
+    alias !== normalized &&
+    Object.prototype.hasOwnProperty.call(ANTIGRAVITY_MODEL_METADATA, alias)
+  ) {
+    return ANTIGRAVITY_MODEL_METADATA[alias]
   }
   if (normalized.startsWith('claude-')) {
     const prefixed = `gemini-${normalized}`

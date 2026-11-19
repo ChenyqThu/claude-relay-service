@@ -14,6 +14,17 @@ const GeminiToOpenAIConverter = require('../services/geminiToOpenAI')
 const CodexToOpenAIConverter = require('../services/codexToOpenAI')
 
 const router = express.Router()
+const THOUGHT_SIGNATURE_FALLBACK = 'skip_thought_signature_validator'
+
+function getOpenAIThoughtSignature(toolCall) {
+  return (
+    toolCall?.extra_content?.google?.thought_signature ||
+    toolCall?.extraContent?.google?.thoughtSignature ||
+    toolCall?.thought_signature ||
+    toolCall?.thoughtSignature ||
+    ''
+  )
+}
 
 // 🔍 根据模型名称检测后端类型
 function detectBackendFromModel(modelName) {
@@ -471,8 +482,11 @@ function buildGeminiRequestFromOpenAI(body) {
               // parse 失败时尝试保留原始内容
               args = tc.function.arguments ? { _raw: tc.function.arguments } : {}
             }
+            const thoughtSignature = getOpenAIThoughtSignature(tc) || THOUGHT_SIGNATURE_FALLBACK
             parts.push({
-              functionCall: { name: tc.function.name, args }
+              thought: true,
+              thoughtSignature,
+              functionCall: { id: tc.id, name: tc.function.name, args }
             })
           }
         }
@@ -490,10 +504,18 @@ function buildGeminiRequestFromOpenAI(body) {
       } catch {
         responseContent = { result: msg.content }
       }
-      contents.push({
-        role: 'user',
-        parts: [{ functionResponse: { name, response: responseContent } }]
-      })
+      const functionResponse = {
+        functionResponse: { id: msg.tool_call_id, name, response: responseContent }
+      }
+      const previousContent = contents[contents.length - 1]
+      const canAppendToPreviousToolResponse =
+        previousContent?.role === 'user' &&
+        previousContent.parts?.every((part) => part.functionResponse)
+      if (canAppendToPreviousToolResponse) {
+        previousContent.parts.push(functionResponse)
+      } else {
+        contents.push({ role: 'user', parts: [functionResponse] })
+      }
     }
   }
 
@@ -700,3 +722,4 @@ function buildContentParts(content) {
 module.exports = router
 module.exports.detectBackendFromModel = detectBackendFromModel
 module.exports.routeToBackend = routeToBackend
+module.exports.buildGeminiRequestFromOpenAI = buildGeminiRequestFromOpenAI

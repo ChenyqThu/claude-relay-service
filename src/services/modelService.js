@@ -73,8 +73,10 @@ class ModelService {
         if (pricing?.max_input_tokens) {
           model.max_input_tokens = pricing.max_input_tokens
         }
-        if (pricing?.max_tokens) {
-          model.max_tokens = pricing.max_tokens
+        // 上游部分条目只给 max_output_tokens（max_tokens 是它的旧别名）
+        const maxTokens = pricing?.max_tokens || pricing?.max_output_tokens
+        if (maxTokens) {
+          model.max_tokens = maxTokens
         }
 
         models.push(model)
